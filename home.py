@@ -7,7 +7,6 @@ import io
 st.set_page_config(page_title="Escala Pastoral Fatima", page_icon="⛪", layout="wide")
 
 st.title("⛪ Gerador de Escala - Paróquia N. Sra. de Fátima")
-st.info("🎨 Consulte a cor litúrgica aqui: [Liturgia Diária - Paulus](https://www.paulus.com.br/portal/liturgia-diaria/)")
 
 # --- PAINEL DE CONTROLE ---
 col1, col2 = st.columns(2)
@@ -20,16 +19,24 @@ upload = st.file_uploader("📂 Arraste o CSV aqui", type="csv")
 
 if upload:
     df = pd.read_csv(upload)
-    df.columns = df.columns.str.strip()
+    df.columns = df.columns.str.strip() # Remove espaços invisíveis
 
     if st.button("🚀 Gerar Escala Final"):
         escala = []
         dias_no_mes = calendar.monthrange(ano, mes)[1]
         
+        # Função interna para achar a coluna certa no seu CSV
+        def achar_coluna(termo):
+            for col in df.columns:
+                if termo.lower() in col.lower():
+                    return col
+            return None
+
         for dia in range(1, dias_no_mes + 1):
             data_atual = datetime(ano, mes, dia)
             dia_semana = data_atual.weekday()
-            nome_dia = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"][dia_semana]
+            nomes_dias = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
+            nome_dia = nomes_dias[dia_semana]
             num_dom = (dia - 1) // 7 + 1
             
             missa_nome = ""
@@ -53,51 +60,48 @@ if upload:
                 l1, l2, pr = "-", "-", "-"
                 vagas = 3 if dia_semana == 6 else (2 if h in ["19h30", "09h"] else 1)
                 
-                escolhidos = []
-                # Lógica simplificada de busca para evitar erros de colunas
-                col_busca = 'Domingo' if dia_semana == 6 else (df.columns[1] if len(df.columns) > 1 else df.columns[0])
-                
-                if col_busca in df.columns:
-                    possiveis = df[df[col_busca].astype(str).str.contains(h, na=False)]
-                    for _, row in possiveis.iterrows():
-                        if len(escolhidos) < vagas and row['Nome'] not in escolhidos:
-                            escolhidos.append(row['Nome'])
-                
-                if vagas == 1: l1 = escolhidos[0] if escolhidos else "Pendente"
-                elif vagas == 2:
-                    l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
-                    pr = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
+                # Regras fixas (Crianças e Família)
+                if num_dom == 3 and dia_semana == 6 and h == "11h":
+                    l1 = l2 = pr = "CRIANÇAS"
+                elif num_dom == 4 and dia_semana == 6 and (h == "07h30" or h == "18h"):
+                    l1 = l2 = "PASTORAL FAMILIAR"
+                    col_dom = achar_coluna("Domingo")
+                    if col_dom:
+                        poss = df[df[col_dom].astype(str).str.contains(h, na=False)]
+                        if not poss.empty: pr = poss.iloc[0]['Nome']
                 else:
-                    l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
-                    l2 = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
-                    pr = escolhidos[2] if len(escolhidos) > 2 else "Pendente"
+                    # Busca automática da coluna baseada no dia da semana
+                    termo_busca = "Domingo" if dia_semana == 6 else nome_dia.split('-')[0]
+                    col_real = achar_coluna(termo_busca)
+                    
+                    escolhidos = []
+                    if col_real:
+                        # Filtra quem marcou o horário e NÃO está impedido naquela data
+                        possiveis = df[df[col_real].astype(str).str.contains(h, na=False)]
+                        for _, row in possiveis.iterrows():
+                            impedimentos = str(row.get('Quaisdias não pode servir', ''))
+                            if len(escolhidos) < vagas and row['Nome'] not in escolhidos and str(dia) not in impedimentos:
+                                escolhidos.append(row['Nome'])
+                    
+                    if vagas == 1: l1 = escolhidos[0] if escolhidos else "Pendente"
+                    elif vagas == 2:
+                        l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
+                        pr = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
+                    else:
+                        l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
+                        l2 = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
+                        pr = escolhidos[2] if len(escolhidos) > 2 else "Pendente"
 
                 escala.append({"Data": data_atual.strftime("%d/%m"), "Dia": f"{nome_dia} {missa_nome}", "Hora": h, "1ª Leitura": l1, "2ª Leitura": l2, "Prece": pr, "Cor": "Verde"})
 
         df_final = pd.DataFrame(escala)
         st.table(df_final)
 
-        # --- CRIAÇÃO DO EXCEL COM LISTA SUSPENSA ---
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
             df_final.to_excel(writer, index=False, sheet_name='Escala')
-            workbook  = writer.book
+            workbook = writer.book
             worksheet = writer.sheets['Escala']
+            worksheet.data_validation('G2:G100', {'validate': 'list', 'source': ['Verde', 'Roxo', 'Branco', 'Vermelho', 'Rosa']})
             
-            # Define as opções da lista suspensa
-            opcoes_cores = ['Verde', 'Roxo', 'Branco', 'Vermelho', 'Rosa']
-            
-            # Aplica a validação de dados na coluna G (Cor), da linha 2 até a 100
-            worksheet.data_validation('G2:G100', {
-                'validate': 'list',
-                'source': opcoes_cores,
-                'input_title': 'Escolha a cor:',
-                'input_message': 'Selecione a cor litúrgica do dia'
-            })
-            
-        st.download_button(
-            label="📥 Baixar Escala para Excel",
-            data=buffer.getvalue(),
-            file_name=f"escala_pastoral_{mes}_{ano}.xlsx",
-            mime="application/vnd.ms-excel"
-        )
+        st.download_button("📥 Baixar Escala para Excel", buffer.getvalue(), f"escala_{mes}_{ano}.xlsx")
