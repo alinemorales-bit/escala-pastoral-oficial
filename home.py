@@ -28,9 +28,7 @@ if upload:
 
     if st.button("🚀 Gerar Escala com Rodízio"):
         escala = []
-        # Dicionário para contar quantas vezes cada pessoa foi escalada no mês
         contagem_participacao = {nome: 0 for nome in df[df.columns[1]].unique()}
-        
         dias_no_mes = calendar.monthrange(ano, mes)[1]
         
         def localizar_coluna(termo):
@@ -62,7 +60,6 @@ if upload:
             elif sem in [0, 2, 4]: horarios = ["19h30"]
             elif sem == 5: horarios = ["09h"]
 
-            # Lista de quem já serviu HOJE (para não repetir no mesmo dia)
             quem_serviu_hoje = []
 
             for idx, h in enumerate(horarios):
@@ -74,11 +71,36 @@ if upload:
 
                 escolhidos = []
                 
-                # Regra de Prioridade Manual (2º Dom 11h)
+                # --- REGRA ESPECÍFICA: 2º DOMINGO 11H (Prioridade na 1ª Leitura) ---
                 if num_dom == 2 and sem == 6 and h == "11h":
-                    escolhidos = ["Aline", "Natalia", "Jefferson"]
+                    prioritarios = ["Aline", "Natalia", "Jefferson"]
+                    # Ordena Aline, Natália e Jefferson pelo rodízio para a 1ª Leitura
+                    prioritarios.sort(key=lambda n: contagem_participacao.get(n, 0))
+                    l1 = prioritarios[0]
+                    quem_serviu_hoje.append(l1)
+                    contagem_participacao[l1] = contagem_participacao.get(l1, 0) + 1
+                    
+                    # Preenche as outras 2 vagas (L2 e Prece) com o restante do pessoal disponível
+                    col_alvo = localizar_coluna("domingo")
+                    if col_alvo:
+                        possiveis_df = df[df[col_alvo].str.contains(h, na=False, case=False)]
+                        candidatos = []
+                        for _, row in possiveis_df.iterrows():
+                            nome_p = row[localizar_coluna("nome")]
+                            if nome_p not in quem_serviu_hoje:
+                                candidatos.append(nome_p)
+                        candidatos.sort(key=lambda n: contagem_participacao.get(n, 0))
+                        for p in candidatos:
+                            if len(escolhidos) < (vagas - 1): # Pega mais 2 pessoas
+                                escolhidos.append(p)
+                                quem_serviu_hoje.append(p)
+                                contagem_participacao[p] = contagem_participacao.get(p, 0) + 1
+                
+                # Regra das Crianças
                 elif num_dom == 3 and sem == 6 and h == "11h":
                     l1 = l2 = pr = "CRIANÇAS"
+                
+                # Preenchimento Geral
                 else:
                     col_alvo = localizar_coluna(nomes_sem[sem])
                     if col_alvo:
@@ -87,7 +109,6 @@ if upload:
                         else:
                             possiveis_df = df[df[col_alvo].str.lower() == "sim"]
                         
-                        # Criar lista de candidatos válidos com base nos impedimentos e repetição diária
                         candidatos = []
                         for _, row in possiveis_df.iterrows():
                             nome_p = row[localizar_coluna("nome")]
@@ -95,22 +116,22 @@ if upload:
                             if nome_p not in quem_serviu_hoje and str(dia) not in imp:
                                 candidatos.append(nome_p)
                         
-                        # Ordenar candidatos: quem tem MENOS participações no mês vem primeiro (RODÍZIO)
                         candidatos.sort(key=lambda n: contagem_participacao.get(n, 0))
-                        
                         for p in candidatos:
                             if len(escolhidos) < vagas:
                                 escolhidos.append(p)
                                 quem_serviu_hoje.append(p)
                                 contagem_participacao[p] = contagem_participacao.get(p, 0) + 1
 
-                # Distribuição nas colunas
                 if l1 == "-":
                     l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
                     if vagas == 2: pr = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
                     if vagas == 3: 
                         l2 = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
                         pr = escolhidos[2] if len(escolhidos) > 2 else "Pendente"
+                elif l1 != "CRIANÇAS" and vagas == 3: # Caso especial do 2º domingo (l1 já preenchido)
+                    l2 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
+                    pr = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
 
                 d_str = dt.strftime("%d/%m") if (sem != 6 or idx == 0) else ""
                 s_str = nome_dia_exibicao if (sem != 6 or idx == 0) else ""
