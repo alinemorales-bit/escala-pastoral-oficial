@@ -8,7 +8,6 @@ st.set_page_config(page_title="Escala Pastoral Fatima", page_icon="⛪", layout=
 
 st.title("⛪ Gerador de Escala - Paróquia N. Sra. de Fátima")
 
-# --- PAINEL DE CONTROLE ---
 col1, col2 = st.columns(2)
 with col1:
     mes = st.selectbox("Selecione o Mês:", range(1, 13), index=datetime.now().month - 1)
@@ -34,11 +33,10 @@ if upload:
         for dia in range(1, dias_no_mes + 1):
             data_atual = datetime(ano, mes, dia)
             dia_semana = data_atual.weekday()
-            nomes_dias = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
+            nomes_dias = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
             nome_dia_puro = nomes_dias[dia_semana]
             num_dom = (dia - 1) // 7 + 1
             
-            # --- CELEBRAÇÃO ---
             celebracao = ""
             if dia_semana == 0: celebracao = "Missa pelas Almas"
             elif dia_semana == 1 and num_dom == 1: celebracao = "Missa pela Saúde (15h)"
@@ -46,12 +44,10 @@ if upload:
             elif dia == 13: celebracao = "Missa em Louvor a N. Sra. de Fátima"
             elif dia_semana == 5: celebracao = "Missa Devocional a Maria"
             
-            # --- LINHA DE DESTAQUE ---
             if dia_semana == 6:
                 textos_dom = {1: "1º DOMINGO", 2: "2º DOMINGO - DIZIMISTAS", 3: "3º DOMINGO - CRIANÇAS", 4: "4º DOMINGO - FAMÍLIAS", 5: "5º DOMINGO"}
                 escala.append({"Data": textos_dom.get(num_dom, "DOMINGO"), "Dia": "", "Missa": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": "", "Cor": ""})
 
-            # --- HORÁRIOS ---
             horarios = []
             if dia_semana == 6: horarios = ["07h30", "11h", "18h"]
             elif "15h" in celebracao: horarios = ["15h"]
@@ -61,40 +57,33 @@ if upload:
             for h in horarios:
                 l1, l2, pr = "-", "-", "-"
                 vagas = 3 if dia_semana == 6 else (2 if h in ["19h30", "09h"] else 1)
-                
                 escolhidos = []
                 
-                # 1. Regra de Prioridade (2º Domingo 11h)
+                # 1. Prioridade do 2º Domingo (Aline, Natália e Jefferson)
                 if num_dom == 2 and dia_semana == 6 and h == "11h":
-                    prioridade = ["Aline", "Natália", "Jefferson"]
-                    for p in prioridade:
-                        if len(escolhidos) < vagas:
-                            escolhidos.append(p)
+                    escolhidos = ["Aline", "Natália", "Jefferson"]
                 
-                # 2. Regra Fixa (3º Domingo 11h)
+                # 2. Regra das Crianças
                 elif num_dom == 3 and dia_semana == 6 and h == "11h":
                     l1 = l2 = pr = "CRIANÇAS"
                 
-                # 3. Regra Mista (4º Domingo 07h30/18h)
-                elif num_dom == 4 and dia_semana == 6 and (h == "07h30" or h == "18h"):
-                    l1 = l2 = "PASTORAL FAMILIAR"
-                    col_dom = achar_coluna("Domingo")
-                    if col_dom:
-                        poss = df[df[col_dom].astype(str).str.contains(h, na=False)]
-                        if not poss.empty: pr = poss.iloc[0]['Nome']
-                
-                # 4. Preenchimento Geral
+                # 3. Busca Geral baseada no seu CSV
                 else:
-                    termo_busca = "Domingo" if dia_semana == 6 else nome_dia_puro.split('-')[0]
-                    col_real = achar_coluna(termo_busca)
+                    col_real = achar_coluna(nome_dia_puro)
                     if col_real:
-                        possiveis = df[df[col_real].astype(str).str.contains(h, na=False)]
+                        # Se for Domingo, procura o horário (ex: "11h")
+                        # Se for semana, procura quem respondeu "Sim"
+                        if dia_semana == 6:
+                            possiveis = df[df[col_real].astype(str).str.contains(h, na=False)]
+                        else:
+                            possiveis = df[df[col_real].astype(str).str.lower() == "sim"]
+                        
                         for _, row in possiveis.iterrows():
                             impedimentos = str(row.get('Quaisdias não pode servir', ''))
                             if len(escolhidos) < vagas and row['Nome'] not in escolhidos and str(dia) not in impedimentos:
                                 escolhidos.append(row['Nome'])
 
-                # Distribuição nas colunas (se não foi fixo)
+                # Preenchimento
                 if l1 == "-":
                     if vagas == 1: l1 = escolhidos[0] if escolhidos else "Pendente"
                     elif vagas == 2:
@@ -105,16 +94,7 @@ if upload:
                         l2 = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
                         pr = escolhidos[2] if len(escolhidos) > 2 else "Pendente"
 
-                escala.append({
-                    "Data": data_atual.strftime("%d/%m"),
-                    "Dia": nome_dia_puro,
-                    "Missa": celebracao,
-                    "Hora": h,
-                    "1ª Leitura": l1,
-                    "2ª Leitura": l2,
-                    "Prece": pr,
-                    "Cor": "Verde"
-                })
+                escala.append({"Data": data_atual.strftime("%d/%m"), "Dia": nome_dia_puro, "Missa": celebracao, "Hora": h, "1ª Leitura": l1, "2ª Leitura": l2, "Prece": pr, "Cor": "Verde"})
 
         df_final = pd.DataFrame(escala)
         st.table(df_final)
@@ -124,6 +104,6 @@ if upload:
             df_final.to_excel(writer, index=False, sheet_name='Escala')
             workbook = writer.book
             worksheet = writer.sheets['Escala']
-            worksheet.data_validation('H2:H100', {'validate': 'list', 'source': ['Verde', 'Roxo', 'Branco', 'Vermelho', 'Rosa']})
+            worksheet.data_validation('H2:H200', {'validate': 'list', 'source': ['Verde', 'Roxo', 'Branco', 'Vermelho', 'Rosa']})
             
         st.download_button("📥 Baixar Escala para Excel", buffer.getvalue(), f"escala_{mes}_{ano}.xlsx")
