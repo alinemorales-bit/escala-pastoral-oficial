@@ -19,13 +19,12 @@ upload = st.file_uploader("📂 Arraste o CSV aqui", type="csv")
 
 if upload:
     df = pd.read_csv(upload)
-    df.columns = df.columns.str.strip() # Remove espaços invisíveis
+    df.columns = df.columns.str.strip() 
 
     if st.button("🚀 Gerar Escala Final"):
         escala = []
         dias_no_mes = calendar.monthrange(ano, mes)[1]
         
-        # Função interna para achar a coluna certa no seu CSV
         def achar_coluna(termo):
             for col in df.columns:
                 if termo.lower() in col.lower():
@@ -36,23 +35,26 @@ if upload:
             data_atual = datetime(ano, mes, dia)
             dia_semana = data_atual.weekday()
             nomes_dias = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
-            nome_dia = nomes_dias[dia_semana]
+            nome_dia_puro = nomes_dias[dia_semana]
             num_dom = (dia - 1) // 7 + 1
             
-            missa_nome = ""
-            if dia_semana == 0: missa_nome = "(Missa pelas Almas)"
-            elif dia_semana == 1 and num_dom == 1: missa_nome = "15h - (Missa pela Saúde)"
-            elif dia_semana == 2: missa_nome = "(Missa Clamando por Cura e Libertação)"
-            elif dia == 13: missa_nome = "(Missa em Louvor a N. Sra. de Fátima)"
-            elif dia_semana == 5: missa_nome = "(Missa Devocional a Maria)"
+            # --- IDENTIFICAÇÃO DA CELEBRAÇÃO ---
+            celebracao = ""
+            if dia_semana == 0: celebracao = "Missa pelas Almas"
+            elif dia_semana == 1 and num_dom == 1: celebracao = "Missa pela Saúde (15h)"
+            elif dia_semana == 2: celebracao = "Missa Cura e Libertação"
+            elif dia == 13: celebracao = "Missa em Louvor a N. Sra. de Fátima"
+            elif dia_semana == 5: celebracao = "Missa Devocional a Maria"
             
+            # --- LINHA DE DESTAQUE DO DOMINGO ---
             if dia_semana == 6:
                 textos_dom = {1: "1º DOMINGO", 2: "2º DOMINGO - DIZIMISTAS", 3: "3º DOMINGO - CRIANÇAS", 4: "4º DOMINGO - FAMÍLIAS", 5: "5º DOMINGO"}
-                escala.append({"Data": textos_dom.get(num_dom, "DOMINGO"), "Dia": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": "", "Cor": ""})
+                escala.append({"Data": textos_dom.get(num_dom, "DOMINGO"), "Dia": "", "Missa": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": "", "Cor": ""})
 
+            # --- HORÁRIOS ---
             horarios = []
             if dia_semana == 6: horarios = ["07h30", "11h", "18h"]
-            elif "15h" in missa_nome: horarios = ["15h"]
+            elif "15h" in celebracao: horarios = ["15h"]
             elif dia_semana in [0, 2, 4]: horarios = ["19h30"]
             elif dia_semana == 5: horarios = ["09h"]
 
@@ -60,7 +62,6 @@ if upload:
                 l1, l2, pr = "-", "-", "-"
                 vagas = 3 if dia_semana == 6 else (2 if h in ["19h30", "09h"] else 1)
                 
-                # Regras fixas (Crianças e Família)
                 if num_dom == 3 and dia_semana == 6 and h == "11h":
                     l1 = l2 = pr = "CRIANÇAS"
                 elif num_dom == 4 and dia_semana == 6 and (h == "07h30" or h == "18h"):
@@ -70,13 +71,11 @@ if upload:
                         poss = df[df[col_dom].astype(str).str.contains(h, na=False)]
                         if not poss.empty: pr = poss.iloc[0]['Nome']
                 else:
-                    # Busca automática da coluna baseada no dia da semana
-                    termo_busca = "Domingo" if dia_semana == 6 else nome_dia.split('-')[0]
+                    termo_busca = "Domingo" if dia_semana == 6 else nome_dia_puro.split('-')[0]
                     col_real = achar_coluna(termo_busca)
                     
                     escolhidos = []
                     if col_real:
-                        # Filtra quem marcou o horário e NÃO está impedido naquela data
                         possiveis = df[df[col_real].astype(str).str.contains(h, na=False)]
                         for _, row in possiveis.iterrows():
                             impedimentos = str(row.get('Quaisdias não pode servir', ''))
@@ -92,7 +91,16 @@ if upload:
                         l2 = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
                         pr = escolhidos[2] if len(escolhidos) > 2 else "Pendente"
 
-                escala.append({"Data": data_atual.strftime("%d/%m"), "Dia": f"{nome_dia} {missa_nome}", "Hora": h, "1ª Leitura": l1, "2ª Leitura": l2, "Prece": pr, "Cor": "Verde"})
+                escala.append({
+                    "Data": data_atual.strftime("%d/%m"),
+                    "Dia": nome_dia_puro,
+                    "Missa": celebracao,
+                    "Hora": h,
+                    "1ª Leitura": l1,
+                    "2ª Leitura": l2,
+                    "Prece": pr,
+                    "Cor": "Verde"
+                })
 
         df_final = pd.DataFrame(escala)
         st.table(df_final)
@@ -102,6 +110,7 @@ if upload:
             df_final.to_excel(writer, index=False, sheet_name='Escala')
             workbook = writer.book
             worksheet = writer.sheets['Escala']
-            worksheet.data_validation('G2:G100', {'validate': 'list', 'source': ['Verde', 'Roxo', 'Branco', 'Vermelho', 'Rosa']})
+            # A coluna Cor agora é a 'H' (8ª coluna) devido à nova coluna 'Missa'
+            worksheet.data_validation('H2:H100', {'validate': 'list', 'source': ['Verde', 'Roxo', 'Branco', 'Vermelho', 'Rosa']})
             
         st.download_button("📥 Baixar Escala para Excel", buffer.getvalue(), f"escala_{mes}_{ano}.xlsx")
