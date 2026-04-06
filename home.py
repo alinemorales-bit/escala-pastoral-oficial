@@ -23,9 +23,10 @@ if upload:
         upload.seek(0)
         df = pd.read_csv(upload, sep=';', encoding='latin1')
 
-    # Limpeza de colunas e dados
+    # Limpeza de colunas
     df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.lower()
-    df = df.applymap(lambda x: str(x).strip() if pd.notnull(x) else x)
+    # Correção do Erro: map em vez de applymap
+    df = df.map(lambda x: str(x).strip() if pd.notnull(x) else x)
 
     if st.button("🚀 Gerar Escala Final"):
         escala = []
@@ -47,7 +48,7 @@ if upload:
             if sem == 0: celebracao = "Missa pelas Almas"
             elif sem == 1 and num_dom == 1: celebracao = "Missa pela Saúde (15h)"
             elif sem == 2: celebracao = "Missa Cura e Libertação"
-            elif dia == 13: celebracao = "Missa em Louvor a N. Sra. de Fátima"
+            elif dia == 13: celebracao = "Missa Louvor N. Sra. Fátima"
             elif sem == 5: celebracao = "Missa Devocional a Maria"
             
             if sem == 6:
@@ -62,7 +63,7 @@ if upload:
 
             for idx, h in enumerate(horarios):
                 l1, l2, pr = "-", "-", "-"
-                # --- NOVAS REGRAS DE QUANTIDADE ---
+                # Regras de quantidade
                 if sem == 2: vagas = 1 # Quarta: 1 leitor
                 elif sem == 1: vagas = 2 # Terça: 2 leitores (L1 e Prece)
                 elif sem == 6: vagas = 3 # Domingo: 3 leitores
@@ -70,6 +71,7 @@ if upload:
 
                 escolhidos = []
                 
+                # Prioridade 2º Dom 11h
                 if num_dom == 2 and sem == 6 and h == "11h":
                     escolhidos = ["Aline", "Natalia", "Jefferson"]
                 elif num_dom == 3 and sem == 6 and h == "11h":
@@ -84,10 +86,11 @@ if upload:
                         
                         for _, row in possiveis.iterrows():
                             imp = str(row.get(localizar_coluna("nao pode") or "", ""))
-                            nome_pessoa = row[localizar_coluna("nome")]
-                            if len(escolhidos) < vagas and nome_pessoa not in escolhidos and str(dia) not in imp:
-                                escolhidos.append(nome_pessoa)
+                            nome_p = row[localizar_coluna("nome")]
+                            if len(escolhidos) < vagas and nome_p not in escolhidos and str(dia) not in imp:
+                                escolhidos.append(nome_p)
 
+                # Distribuição
                 if l1 == "-":
                     l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
                     if vagas == 2: pr = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
@@ -95,21 +98,12 @@ if upload:
                         l2 = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
                         pr = escolhidos[2] if len(escolhidos) > 2 else "Pendente"
 
-                # Mesclagem visual: só mostra Data/Dia na primeira linha do dia
-                data_str = dt.strftime("%d/%m") if (sem != 6 or idx == 0) else ""
-                dia_str = nome_dia_exibicao if (sem != 6 or idx == 0) else ""
-                missa_str = celebracao if (sem != 6 or idx == 0) else ""
+                # Mesclagem visual
+                d_str = dt.strftime("%d/%m") if (sem != 6 or idx == 0) else ""
+                s_str = nome_dia_exibicao if (sem != 6 or idx == 0) else ""
+                m_str = celebracao if (sem != 6 or idx == 0) else ""
 
-                escala.append({
-                    "Data": data_str,
-                    "Dia": dia_str,
-                    "Missa": missa_str,
-                    "Cor": "Verde",
-                    "Hora": h,
-                    "1ª Leitura": l1,
-                    "2ª Leitura": l2,
-                    "Prece": pr
-                })
+                escala.append({"Data": d_str, "Dia": s_str, "Missa": m_str, "Cor": "Verde", "Hora": h, "1ª Leitura": l1, "2ª Leitura": l2, "Prece": pr})
 
         df_final = pd.DataFrame(escala)
         st.table(df_final)
@@ -118,6 +112,5 @@ if upload:
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_final.to_excel(writer, index=False, sheet_name='Escala')
             ws = writer.sheets['Escala']
-            # Lista suspensa agora na coluna D (Cor)
             ws.data_validation('D2:D200', {'validate': 'list', 'source': ['Verde', 'Roxo', 'Branco', 'Vermelho', 'Rosa']})
         st.download_button("📥 Baixar Escala para Excel", output.getvalue(), f"escala_{mes}.xlsx")
