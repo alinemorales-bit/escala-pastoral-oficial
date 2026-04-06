@@ -23,13 +23,14 @@ if upload:
         upload.seek(0)
         df = pd.read_csv(upload, sep=';', encoding='latin1')
 
-    # Limpeza de colunas
     df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.lower()
-    # Correção do Erro: map em vez de applymap
     df = df.map(lambda x: str(x).strip() if pd.notnull(x) else x)
 
-    if st.button("🚀 Gerar Escala Final"):
+    if st.button("🚀 Gerar Escala com Rodízio"):
         escala = []
+        # Dicionário para contar quantas vezes cada pessoa foi escalada no mês
+        contagem_participacao = {nome: 0 for nome in df[df.columns[1]].unique()}
+        
         dias_no_mes = calendar.monthrange(ano, mes)[1]
         
         def localizar_coluna(termo):
@@ -61,17 +62,19 @@ if upload:
             elif sem in [0, 2, 4]: horarios = ["19h30"]
             elif sem == 5: horarios = ["09h"]
 
+            # Lista de quem já serviu HOJE (para não repetir no mesmo dia)
+            quem_serviu_hoje = []
+
             for idx, h in enumerate(horarios):
                 l1, l2, pr = "-", "-", "-"
-                # Regras de quantidade
-                if sem == 2: vagas = 1 # Quarta: 1 leitor
-                elif sem == 1: vagas = 2 # Terça: 2 leitores (L1 e Prece)
-                elif sem == 6: vagas = 3 # Domingo: 3 leitores
-                else: vagas = 2 # Outros: 2 leitores
+                if sem == 2: vagas = 1 
+                elif sem == 1: vagas = 2 
+                elif sem == 6: vagas = 3 
+                else: vagas = 2 
 
                 escolhidos = []
                 
-                # Prioridade 2º Dom 11h
+                # Regra de Prioridade Manual (2º Dom 11h)
                 if num_dom == 2 and sem == 6 and h == "11h":
                     escolhidos = ["Aline", "Natalia", "Jefferson"]
                 elif num_dom == 3 and sem == 6 and h == "11h":
@@ -80,17 +83,28 @@ if upload:
                     col_alvo = localizar_coluna(nomes_sem[sem])
                     if col_alvo:
                         if sem == 6:
-                            possiveis = df[df[col_alvo].str.contains(h, na=False, case=False)]
+                            possiveis_df = df[df[col_alvo].str.contains(h, na=False, case=False)]
                         else:
-                            possiveis = df[df[col_alvo].str.lower() == "sim"]
+                            possiveis_df = df[df[col_alvo].str.lower() == "sim"]
                         
-                        for _, row in possiveis.iterrows():
-                            imp = str(row.get(localizar_coluna("nao pode") or "", ""))
+                        # Criar lista de candidatos válidos com base nos impedimentos e repetição diária
+                        candidatos = []
+                        for _, row in possiveis_df.iterrows():
                             nome_p = row[localizar_coluna("nome")]
-                            if len(escolhidos) < vagas and nome_p not in escolhidos and str(dia) not in imp:
-                                escolhidos.append(nome_p)
+                            imp = str(row.get(localizar_coluna("nao pode") or "", ""))
+                            if nome_p not in quem_serviu_hoje and str(dia) not in imp:
+                                candidatos.append(nome_p)
+                        
+                        # Ordenar candidatos: quem tem MENOS participações no mês vem primeiro (RODÍZIO)
+                        candidatos.sort(key=lambda n: contagem_participacao.get(n, 0))
+                        
+                        for p in candidatos:
+                            if len(escolhidos) < vagas:
+                                escolhidos.append(p)
+                                quem_serviu_hoje.append(p)
+                                contagem_participacao[p] = contagem_participacao.get(p, 0) + 1
 
-                # Distribuição
+                # Distribuição nas colunas
                 if l1 == "-":
                     l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
                     if vagas == 2: pr = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
@@ -98,7 +112,6 @@ if upload:
                         l2 = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
                         pr = escolhidos[2] if len(escolhidos) > 2 else "Pendente"
 
-                # Mesclagem visual
                 d_str = dt.strftime("%d/%m") if (sem != 6 or idx == 0) else ""
                 s_str = nome_dia_exibicao if (sem != 6 or idx == 0) else ""
                 m_str = celebracao if (sem != 6 or idx == 0) else ""
@@ -113,4 +126,4 @@ if upload:
             df_final.to_excel(writer, index=False, sheet_name='Escala')
             ws = writer.sheets['Escala']
             ws.data_validation('D2:D200', {'validate': 'list', 'source': ['Verde', 'Roxo', 'Branco', 'Vermelho', 'Rosa']})
-        st.download_button("📥 Baixar Escala para Excel", output.getvalue(), f"escala_{mes}.xlsx")
+        st.download_button("📥 Baixar Escala Equilibrada", output.getvalue(), f"escala_{mes}.xlsx")
