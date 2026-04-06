@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime
 import calendar
 import io
+import random
 
 st.set_page_config(page_title="Escala Pastoral Fatima", page_icon="⛪", layout="wide")
 
@@ -26,13 +27,16 @@ if upload:
     df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.lower()
     df = df.map(lambda x: str(x).strip() if pd.notnull(x) else x)
 
-    if st.button("🚀 Gerar Escala com Rodízio"):
+    if st.button("🚀 Gerar Escala Final (Equilibrada)"):
         escala = []
-        contagem_participacao = {nome: 0 for nome in df[df.columns[1]].unique()}
+        # Inicializa a contagem para todos os nomes no CSV
+        nomes_unicos = df[localizar_coluna(df, "nome")].unique()
+        contagem_participacao = {nome: 0 for nome in nomes_unicos}
+        
         dias_no_mes = calendar.monthrange(ano, mes)[1]
         
-        def localizar_coluna(termo):
-            for col in df.columns:
+        def localizar_coluna(data_f, termo):
+            for col in data_f.columns:
                 if termo.lower() in col: return col
             return None
 
@@ -64,72 +68,64 @@ if upload:
 
             for idx, h in enumerate(horarios):
                 l1, l2, pr = "-", "-", "-"
-                if sem == 2: vagas = 1 
-                elif sem == 1: vagas = 2 
-                elif sem == 6: vagas = 3 
-                else: vagas = 2 
-
+                vagas = 1 if sem == 2 else (2 if sem == 1 else (3 if sem == 6 else 2))
                 escolhidos = []
                 
-                # --- REGRA ESPECÍFICA: 2º DOMINGO 11H (Prioridade na 1ª Leitura) ---
+                # --- PRIORIDADE 2º DOM 11H (Sorteio entre Aline, Natalia, Jefferson) ---
                 if num_dom == 2 and sem == 6 and h == "11h":
                     prioritarios = ["Aline", "Natalia", "Jefferson"]
-                    # Ordena Aline, Natália e Jefferson pelo rodízio para a 1ª Leitura
-                    prioritarios.sort(key=lambda n: contagem_participacao.get(n, 0))
-                    l1 = prioritarios[0]
+                    # Sorteia entre eles baseado em quem serviu menos
+                    min_serv = min(contagem_participacao.get(p, 0) for p in prioritarios)
+                    candidatos_p = [p for p in prioritarios if contagem_participacao.get(p, 0) == min_serv]
+                    l1 = random.choice(candidatos_p)
                     quem_serviu_hoje.append(l1)
-                    contagem_participacao[l1] = contagem_participacao.get(l1, 0) + 1
+                    contagem_participacao[l1] += 1
                     
-                    # Preenche as outras 2 vagas (L2 e Prece) com o restante do pessoal disponível
-                    col_alvo = localizar_coluna("domingo")
-                    if col_alvo:
-                        possiveis_df = df[df[col_alvo].str.contains(h, na=False, case=False)]
-                        candidatos = []
-                        for _, row in possiveis_df.iterrows():
-                            nome_p = row[localizar_coluna("nome")]
-                            if nome_p not in quem_serviu_hoje:
-                                candidatos.append(nome_p)
-                        candidatos.sort(key=lambda n: contagem_participacao.get(n, 0))
-                        for p in candidatos:
-                            if len(escolhidos) < (vagas - 1): # Pega mais 2 pessoas
-                                escolhidos.append(p)
-                                quem_serviu_hoje.append(p)
-                                contagem_participacao[p] = contagem_participacao.get(p, 0) + 1
-                
-                # Regra das Crianças
+                    # Outras vagas (L2 e Prece)
+                    vagas_restantes = 2
                 elif num_dom == 3 and sem == 6 and h == "11h":
                     l1 = l2 = pr = "CRIANÇAS"
-                
-                # Preenchimento Geral
+                    vagas_restantes = 0
                 else:
-                    col_alvo = localizar_coluna(nomes_sem[sem])
+                    vagas_restantes = vagas
+
+                if vagas_restantes > 0:
+                    col_alvo = localizar_coluna(df, nomes_sem[sem])
                     if col_alvo:
                         if sem == 6:
                             possiveis_df = df[df[col_alvo].str.contains(h, na=False, case=False)]
                         else:
                             possiveis_df = df[df[col_alvo].str.lower() == "sim"]
                         
-                        candidatos = []
+                        candidatos_validos = []
                         for _, row in possiveis_df.iterrows():
-                            nome_p = row[localizar_coluna("nome")]
-                            imp = str(row.get(localizar_coluna("nao pode") or "", ""))
-                            if nome_p not in quem_serviu_hoje and str(dia) not in imp:
-                                candidatos.append(nome_p)
+                            n_p = row[localizar_coluna(df, "nome")]
+                            imp = str(row.get(localizar_coluna(df, "nao pode") or "", ""))
+                            if n_p not in quem_serviu_hoje and str(dia) not in imp:
+                                candidatos_validos.append(n_p)
                         
-                        candidatos.sort(key=lambda n: contagem_participacao.get(n, 0))
-                        for p in candidatos:
-                            if len(escolhidos) < vagas:
-                                escolhidos.append(p)
-                                quem_serviu_hoje.append(p)
-                                contagem_participacao[p] = contagem_participacao.get(p, 0) + 1
+                        # --- LÓGICA DE SORTEIO EQUILIBRADO ---
+                        while len(escolhidos) < vagas_restantes and candidatos_validos:
+                            # Descobre qual o menor número de participações entre os disponíveis
+                            min_participacoes = min(contagem_participacao.get(c, 0) for c in candidatos_validos)
+                            # Pega todos que têm esse número mínimo
+                            mais_aptos = [c for c in candidatos_validos if contagem_participacao.get(c, 0) == min_participacoes]
+                            # Sorteia um deles para garantir que a escala mude a cada geração
+                            escolhido = random.choice(mais_aptos)
+                            
+                            escolhidos.append(escolhido)
+                            quem_serviu_hoje.append(escolhido)
+                            contagem_participacao[escolhido] += 1
+                            candidatos_validos.remove(escolhido)
 
+                # Organização das colunas
                 if l1 == "-":
                     l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
                     if vagas == 2: pr = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
                     if vagas == 3: 
                         l2 = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
                         pr = escolhidos[2] if len(escolhidos) > 2 else "Pendente"
-                elif l1 != "CRIANÇAS" and vagas == 3: # Caso especial do 2º domingo (l1 já preenchido)
+                elif l1 != "CRIANÇAS" and vagas == 3:
                     l2 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
                     pr = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
 
@@ -147,4 +143,4 @@ if upload:
             df_final.to_excel(writer, index=False, sheet_name='Escala')
             ws = writer.sheets['Escala']
             ws.data_validation('D2:D200', {'validate': 'list', 'source': ['Verde', 'Roxo', 'Branco', 'Vermelho', 'Rosa']})
-        st.download_button("📥 Baixar Escala Equilibrada", output.getvalue(), f"escala_{mes}.xlsx")
+        st.download_button("📥 Baixar Escala Dinâmica", output.getvalue(), f"escala_{mes}.xlsx")
