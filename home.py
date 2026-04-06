@@ -7,7 +7,6 @@ import io
 st.set_page_config(page_title="Escala Pastoral Fatima", page_icon="⛪", layout="wide")
 
 st.title("⛪ Gerador de Escala - Paróquia N. Sra. de Fátima")
-st.write("Organização mensal com cores litúrgicas e aniversariantes.")
 
 # --- ENTRADA DE DADOS ---
 col1, col2, col3 = st.columns(3)
@@ -16,15 +15,15 @@ with col1:
 with col2:
     ano = st.number_input("Ano:", value=2026)
 with col3:
-    cor_padrao = st.selectbox("Cor Litúrgica do Mês:", ["Verde", "Roxo", "Branco", "Vermelho", "Rosa"])
+    cor_padrao = st.selectbox("Cor Litúrgica:", ["Verde", "Roxo", "Branco", "Vermelho", "Rosa"])
 
-upload = st.file_uploader("📂 Arraste o CSV das respostas aqui", type="csv")
+upload = st.file_uploader("📂 Arraste o CSV aqui", type="csv")
 
 if upload:
     df = pd.read_csv(upload)
-    # Garante que a coluna de Nascimento existe para os aniversariantes
-    if 'Data de Nascimento' not in df.columns:
-        st.warning("Dica: Adicione uma coluna 'Data de Nascimento' no seu formulário para listar os aniversariantes automaticamente!")
+    
+    # Limpa nomes de colunas (tira espaços extras)
+    df.columns = df.columns.str.strip()
 
     if st.button("🚀 Gerar Escala Completa"):
         escala = []
@@ -39,22 +38,17 @@ if upload:
             missas_hoje = []
             destaque = ""
 
-            # --- REGRAS DE DOMINGO E DESTAQUES ---
             if dia_semana == 6:
                 if num_dom == 1: destaque = "1º DOMINGO"
-                elif num_dom == 2: destaque = "2º DOMINGO - REZEMOS PELOS DIZIMISTAS"
-                elif num_dom == 3: destaque = "3º DOMINGO - REZEMOS PELAS CRIANÇAS"
-                elif num_dom == 4: destaque = "4º DOMINGO - REZEMOS PELAS FAMÍLIAS"
+                elif num_dom == 2: destaque = "2º DOMINGO - DIZIMISTAS"
+                elif num_dom == 3: destaque = "3º DOMINGO - CRIANÇAS"
+                elif num_dom == 4: destaque = "4º DOMINGO - FAMÍLIAS"
                 
                 for h in ["07h30", "11h", "18h"]:
-                    if num_dom == 3 and h == "11h":
-                        missas_hoje.append({"h": h, "v": 3, "fixo": "CRIANÇAS", "dest": destaque})
-                    elif num_dom == 4 and (h == "07h30" or h == "18h"):
-                        missas_hoje.append({"h": h, "v": 3, "tipo": "MistaFamília", "dest": destaque})
-                    else:
-                        missas_hoje.append({"h": h, "v": 3, "col": "Domingo", "dest": destaque})
+                    if num_dom == 3 and h == "11h": missas_hoje.append({"h": h, "v": 3, "fixo": "CRIANÇAS", "dest": destaque})
+                    elif num_dom == 4 and (h == "07h30" or h == "18h"): missas_hoje.append({"h": h, "v": 3, "tipo": "MistaFamília", "dest": destaque})
+                    else: missas_hoje.append({"h": h, "v": 3, "col": "Domingo", "dest": destaque})
             
-            # --- SEMANA ---
             elif dia_semana == 0: missas_hoje.append({"h": "19h30", "v": 2, "col": "Segunda-feira 19h30 - Missa pelas almas"})
             elif dia_semana == 1 and num_dom == 1: missas_hoje.append({"h": "15h", "v": 1, "col": "Terça-feira (Missa pela Saúde)"})
             elif dia_semana == 2: missas_hoje.append({"h": "19h30", "v": 1, "col": "Quarta-feira 19h30 - Clamando por Cura e Libertação"})
@@ -69,14 +63,16 @@ if upload:
                     l1 = l2 = pr = m['fixo']
                 elif "tipo" in m and m['tipo'] == "MistaFamília":
                     l1 = l2 = "PASTORAL FAMILIAR"
-                    possiveis = df[df['Domingo'].astype(str).str.contains(m['h'], na=False)]
-                    if not possiveis.empty: pr = possiveis.iloc[0]['Nome']
+                    if 'Domingo' in df.columns:
+                        possiveis = df[df['Domingo'].astype(str).str.contains(m['h'], na=False)]
+                        if not possiveis.empty: pr = possiveis.iloc[0]['Nome']
                 else:
                     col_busca = m.get('col', 'Domingo')
-                    possiveis = df[df[col_busca].astype(str).str.contains(m['h'], na=False)]
-                    for _, row in possiveis.iterrows():
-                        if len(escolhidos) < m['v'] and row['Nome'] not in escolhidos:
-                            if str(dia) not in str(row.get('Quaisdias não pode servir', '')):
+                    # Só tenta buscar se a coluna realmente existir
+                    if col_busca in df.columns:
+                        possiveis = df[df[col_busca].astype(str).str.contains(m['h'], na=False)]
+                        for _, row in possiveis.iterrows():
+                            if len(escolhidos) < m['v'] and row['Nome'] not in escolhidos:
                                 escolhidos.append(row['Nome'])
                     
                     if m['v'] == 1: l1 = escolhidos[0] if escolhidos else "Pendente"
@@ -100,22 +96,9 @@ if upload:
                 })
 
         df_final = pd.DataFrame(escala)
-        st.subheader("📊 Sugestão de Escala")
         st.table(df_final)
 
-        # --- ANIVERSARIANTES ---
-        st.divider()
-        st.subheader("🎂 Aniversariantes do Mês")
-        if 'Data de Nascimento' in df.columns:
-            df['Data de Nascimento'] = pd.to_datetime(df['Data de Nascimento'], errors='coerce')
-            aniv = df[df['Data de Nascimento'].dt.month == mes]
-            if not aniv.empty:
-                for _, r in aniv.sort_values(by='Data de Nascimento').iterrows():
-                    st.write(f"• **{r['Data de Nascimento'].strftime('%d')}**: {r['Nome']}")
-            else: st.write("Nenhum aniversariante encontrado para este mês.")
-
-        # --- DOWNLOAD ---
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
             df_final.to_excel(writer, index=False)
-        st.download_button("📥 Baixar Escala (Excel)", buffer.getvalue(), f"escala_{mes}.xlsx")
+        st.download_button("📥 Baixar Excel", buffer.getvalue(), "escala.xlsx")
