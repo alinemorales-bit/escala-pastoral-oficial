@@ -24,21 +24,22 @@ if upload:
         upload.seek(0)
         df = pd.read_csv(upload, sep=';', encoding='latin1')
 
+    def localizar_coluna(data_f, termo):
+        for col in data_f.columns:
+            if termo.lower() in col.lower(): return col
+        return None
+
+    # Limpeza inicial
     df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.lower()
     df = df.map(lambda x: str(x).strip() if pd.notnull(x) else x)
 
     if st.button("🚀 Gerar Escala Final (Equilibrada)"):
         escala = []
-        # Inicializa a contagem para todos os nomes no CSV
-        nomes_unicos = df[localizar_coluna(df, "nome")].unique()
+        col_nome = localizar_coluna(df, "nome")
+        nomes_unicos = df[col_nome].unique()
         contagem_participacao = {nome: 0 for nome in nomes_unicos}
         
         dias_no_mes = calendar.monthrange(ano, mes)[1]
-        
-        def localizar_coluna(data_f, termo):
-            for col in data_f.columns:
-                if termo.lower() in col: return col
-            return None
 
         for dia in range(1, dias_no_mes + 1):
             dt = datetime(ano, mes, dia)
@@ -70,25 +71,25 @@ if upload:
                 l1, l2, pr = "-", "-", "-"
                 vagas = 1 if sem == 2 else (2 if sem == 1 else (3 if sem == 6 else 2))
                 escolhidos = []
-                
-                # --- PRIORIDADE 2º DOM 11H (Sorteio entre Aline, Natalia, Jefferson) ---
+                vagas_restantes = vagas # Inicializa sempre para evitar o erro
+
+                # --- REGRA 2º DOM 11H ---
                 if num_dom == 2 and sem == 6 and h == "11h":
-                    prioritarios = ["Aline", "Natalia", "Jefferson"]
-                    # Sorteia entre eles baseado em quem serviu menos
-                    min_serv = min(contagem_participacao.get(p, 0) for p in prioritarios)
-                    candidatos_p = [p for p in prioritarios if contagem_participacao.get(p, 0) == min_serv]
-                    l1 = random.choice(candidatos_p)
-                    quem_serviu_hoje.append(l1)
-                    contagem_participacao[l1] += 1
-                    
-                    # Outras vagas (L2 e Prece)
-                    vagas_restantes = 2
+                    prioritarios = [p for p in ["Aline", "Natalia", "Jefferson"] if p in contagem_participacao]
+                    if prioritarios:
+                        min_serv = min(contagem_participacao[p] for p in prioritarios)
+                        aptos_p = [p for p in prioritarios if contagem_participacao[p] == min_serv]
+                        l1 = random.choice(aptos_p)
+                        quem_serviu_hoje.append(l1)
+                        contagem_participacao[l1] += 1
+                        vagas_restantes = vagas - 1
+                
+                # --- REGRA CRIANÇAS ---
                 elif num_dom == 3 and sem == 6 and h == "11h":
                     l1 = l2 = pr = "CRIANÇAS"
                     vagas_restantes = 0
-                else:
-                    vagas_restantes = vagas
 
+                # --- PREENCHIMENTO GERAL ---
                 if vagas_restantes > 0:
                     col_alvo = localizar_coluna(df, nomes_sem[sem])
                     if col_alvo:
@@ -99,26 +100,22 @@ if upload:
                         
                         candidatos_validos = []
                         for _, row in possiveis_df.iterrows():
-                            n_p = row[localizar_coluna(df, "nome")]
+                            n_p = row[col_nome]
                             imp = str(row.get(localizar_coluna(df, "nao pode") or "", ""))
                             if n_p not in quem_serviu_hoje and str(dia) not in imp:
                                 candidatos_validos.append(n_p)
                         
-                        # --- LÓGICA DE SORTEIO EQUILIBRADO ---
                         while len(escolhidos) < vagas_restantes and candidatos_validos:
-                            # Descobre qual o menor número de participações entre os disponíveis
-                            min_participacoes = min(contagem_participacao.get(c, 0) for c in candidatos_validos)
-                            # Pega todos que têm esse número mínimo
-                            mais_aptos = [c for c in candidatos_validos if contagem_participacao.get(c, 0) == min_participacoes]
-                            # Sorteia um deles para garantir que a escala mude a cada geração
-                            escolhido = random.choice(mais_aptos)
+                            min_p = min(contagem_participacao[c] for c in candidatos_validos)
+                            mais_aptos = [c for c in candidatos_validos if contagem_participacao[c] == min_p]
+                            sorteado = random.choice(mais_aptos)
                             
-                            escolhidos.append(escolhido)
-                            quem_serviu_hoje.append(escolhido)
-                            contagem_participacao[escolhido] += 1
-                            candidatos_validos.remove(escolhido)
+                            escolhidos.append(sorteado)
+                            quem_serviu_hoje.append(sorteado)
+                            contagem_participacao[sorteado] += 1
+                            candidatos_validos.remove(sorteado)
 
-                # Organização das colunas
+                # Organização final das colunas
                 if l1 == "-":
                     l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
                     if vagas == 2: pr = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
@@ -143,4 +140,4 @@ if upload:
             df_final.to_excel(writer, index=False, sheet_name='Escala')
             ws = writer.sheets['Escala']
             ws.data_validation('D2:D200', {'validate': 'list', 'source': ['Verde', 'Roxo', 'Branco', 'Vermelho', 'Rosa']})
-        st.download_button("📥 Baixar Escala Dinâmica", output.getvalue(), f"escala_{mes}.xlsx")
+        st.download_button("📥 Baixar Escala Equilibrada", output.getvalue(), f"escala_{mes}.xlsx")
