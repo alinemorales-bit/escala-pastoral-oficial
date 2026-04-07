@@ -4,6 +4,7 @@ from datetime import datetime
 import calendar
 import io
 import random
+import re
 
 st.set_page_config(page_title="Escala Pastoral Fatima", page_icon="⛪", layout="wide")
 
@@ -32,7 +33,7 @@ if upload:
     df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.lower()
     df = df.map(lambda x: str(x).strip() if pd.notnull(x) else x)
 
-    if st.button("🚀 Gerar Escala Final (Preenchimento Total)"):
+    if st.button("🚀 Gerar Escala Final"):
         escala = []
         col_nome = localizar_coluna(df, "nome")
         nomes_unicos = list(df[col_nome].unique())
@@ -63,72 +64,67 @@ if upload:
                 textos = {1:"1º DOMINGO", 2:"2º DOMINGO - DIZIMISTAS", 3:"3º DOMINGO - CRIANÇAS", 4:"4º DOMINGO - FAMÍLIAS", 5:"5º DOMINGO"}
                 escala.append({"Data": textos.get(num_dom, "DOMINGO"), "Dia": "", "Missa": "", "Cor": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": ""})
 
-            horarios = []
-            if sem == 6: horarios = ["07h30", "11h", "18h"]
-            elif "15h" in celebracao: horarios = ["15h"]
-            elif sem in [0, 2, 4] or "São José" in celebracao: horarios = ["19h30"]
-            elif sem == 5: horarios = ["09h"]
+            horarios = ["07h30", "11h", "18h"] if sem == 6 else (["15h"] if "15h" in celebracao else (["19h30"] if (sem in [0, 2, 4] or "São José" in celebracao) else (["09h"] if sem == 5 else [])))
 
             quem_serviu_hoje = []
 
-            for idx, h in enumerate(horarios):
-                l1, l2, pr = "-", "", ""
-                vagas = 1 if sem == 2 else (2 if (sem == 1 or "São José" in celebracao) else (3 if sem == 6 else 2))
+            for h in horarios:
+                vagas = 3 if sem == 6 else (1 if sem == 2 else 2)
                 escolhidos = []
-
-                # Regra 2º Dom 11h
+                
+                # Prioridade 2º Dom 11h
+                l1_fixo = None
                 if num_dom == 2 and sem == 6 and h == "11h":
-                    prioritarios = [p for p in ["Aline", "Natalia", "Jefferson", "Natália "] if p in contagem_participacao]
-                    random.shuffle(prioritarios)
-                    prioritarios.sort(key=lambda n: contagem_participacao[n])
-                    l1 = prioritarios[0]
-                    quem_serviu_hoje.append(l1)
-                    contagem_participacao[l1] += 1
-                    vagas_restantes = vagas - 1
-                elif num_dom == 3 and sem == 6 and h == "11h":
-                    l1 = l2 = pr = "CRIANÇAS"
-                    vagas_restantes = 0
-                else:
-                    vagas_restantes = vagas
+                    prios = [p for p in ["Aline", "Natalia", "Jefferson", "Natália "] if p in contagem_participacao]
+                    random.shuffle(prios)
+                    prios.sort(key=lambda n: contagem_participacao[n])
+                    l1_fixo = prios[0]
 
-                if vagas_restantes > 0:
-                    col_alvo = localizar_coluna(df, data_formatada) or localizar_coluna(df, nomes_sem[sem])
-                    if col_alvo:
-                        if sem == 6:
-                            possiveis_df = df[df[col_alvo].str.contains(h, na=False, case=False)]
-                        else:
-                            possiveis_df = df[df[col_alvo].str.lower() == "sim"]
+                # Busca candidatos
+                col_alvo = localizar_coluna(df, data_formatada) or localizar_coluna(df, nomes_sem[sem])
+                candidatos = []
+                if col_alvo:
+                    possiveis = df[df[col_alvo].str.contains(h, na=False, case=False)] if sem == 6 else df[df[col_alvo].str.lower() == "sim"]
+                    for _, row in possiveis.iterrows():
+                        nome = row[col_nome]
+                        imp = str(row.get(localizar_coluna(df, "nao pode") or "", "")).lower()
+                        # Verifica se o número do dia aparece isolado no texto (evita travar o mês todo)
+                        dia_bloqueado = re.search(rf"\b0?{dia}\b", imp)
                         
-                        # Candidatos que não serviram HOJE e não têm impedimento
-                        candidatos = []
-                        for _, row in possiveis_df.iterrows():
-                            n_p = row[col_nome]
-                            imp = str(row.get(localizar_coluna(df, "nao pode") or "", ""))
-                            if n_p not in quem_serviu_hoje and str(dia) not in imp:
-                                candidatos.append(n_p)
-                        
-                        # --- LÓGICA FLEXÍVEL ---
-                        random.shuffle(candidatos)
-                        # Ordena apenas pelo número de participações (isso naturalmente favorece quem serviu menos, mas NÃO bloqueia quem já serviu)
-                        candidatos.sort(key=lambda n: contagem_participacao[n])
-                        
-                        for p in candidatos:
-                            if len(escolhidos) < vagas_restantes:
-                                escolhidos.append(p)
-                                quem_serviu_hoje.append(p)
-                                contagem_participacao[p] += 1
+                        if nome not in quem_serviu_hoje and not dia_bloqueado:
+                            if nome != l1_fixo:
+                                candidatos.append(nome)
 
-                # Organização das Colunas
-                if l1 == "-":
-                    l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
-                    if vagas >= 2: pr = escolhidos[1] if len(escolhidos) > 1 else ""
-                    if vagas == 3: 
-                        l2 = escolhidos[1] if len(escolhidos) > 1 else ""
-                        pr = escolhidos[2] if len(escolhidos) > 2 else ""
-                elif l1 != "CRIANÇAS" and vagas == 3:
-                    l2 = escolhidos[0] if len(escolhidos) > 0 else ""
-                    pr = escolhidos[1] if len(escolhidos) > 1 else ""
+                random.shuffle(candidatos)
+                candidatos.sort(key=lambda n: contagem_participacao[n])
 
-                escala.append({"Data": dt.strftime("%d/%m") if (sem != 6 or idx == 0) else "", "Dia": nome_dia_exibicao if (sem != 6 or idx == 0) else "", "Missa": celebracao if (sem != 6 or idx == 0) else "", "Cor": "Verde", "Hora": h, "1ª Leitura": l1, "2ª Leitura": l2, "Prece": pr})
+                if l1_fixo:
+                    escolhidos.append(l1_fixo)
+                
+                for p in candidatos:
+                    if len(escolhidos) < vagas:
+                        escolhidos.append(p)
+                
+                # Atualiza contagem
+                for e in escolhidos:
+                    contagem_participacao[e] += 1
+                    quem_serviu_hoje.append(e)
+
+                # Preenche colunas
+                res = {"Data": dt.strftime("%d/%m") if (sem != 6 or h == horarios[0]) else "", 
+                       "Dia": nome_dia_exibicao if (sem != 6 or h == horarios[0]) else "", 
+                       "Missa": celebracao if (sem != 6 or h == horarios[0]) else "", 
+                       "Cor": "Verde", "Hora": h}
+                
+                res["1ª Leitura"] = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
+                res["2ª Leitura"] = escolhidos[1] if len(escolhidos) > 1 and vagas == 3 else ""
+                res["Prece"] = escolhidos[-1] if len(escolhidos) > 1 else ""
+                
+                # Ajuste específico para 2 vagas (L1 e Prece)
+                if vagas == 2 and len(escolhidos) == 2:
+                    res["2ª Leitura"] = ""
+                    res["Prece"] = escolhidos[1]
+                
+                escala.append(res)
 
         st.table(pd.DataFrame(escala))
