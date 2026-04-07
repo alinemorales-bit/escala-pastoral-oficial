@@ -7,11 +7,7 @@ import random
 import re
 import unicodedata
 
-st.set_page_config(page_title="Escala Pastoral Fatima", page_icon="⛪", layout="wide")
-
-st.title("⛪ Gerador de Escala - Paróquia N. Sra. de Fátima")
-
-# --- FUNÇÕES DE APOIO ---
+# 1. FUNÇÕES DE APOIO (Definidas no topo absoluto para o sistema reconhecer)
 def normalizar(txt):
     if pd.isna(txt): return ""
     txt = str(txt).lower().strip()
@@ -24,7 +20,10 @@ def buscar_coluna(df, termo):
             return col
     return None
 
-# --- CONFIGURAÇÃO ---
+# 2. CONFIGURAÇÃO DA PÁGINA
+st.set_page_config(page_title="Escala Pastoral Fatima", page_icon="⛪", layout="wide")
+st.title("⛪ Gerador de Escala - Paróquia N. Sra. de Fátima")
+
 col1, col2 = st.columns(2)
 with col1:
     mes = st.selectbox("Mês:", range(1, 13), index=datetime.now().month - 1)
@@ -40,18 +39,17 @@ if upload:
         upload.seek(0)
         df = pd.read_csv(upload, sep=';', encoding='latin1')
 
-    if st.button("🚀 Gerar Escala (Nomes Limpos)"):
+    if st.button("🚀 Gerar Escala Final (Versão Estável)"):
         escala = []
-        # Identifica a coluna correta de nomes e impedimentos
-        col_nome = buscar_coluna(df, "nome")
-        col_impedimento = buscar_coluna(df, "nao pod")
+        c_nome = buscar_coluna(df, "nome")
+        c_imp = buscar_coluna(df, "nao pod")
         
-        if not col_nome:
-            st.error("Coluna 'Nome' não encontrada no arquivo!")
+        if not c_nome:
+            st.error("ERRO: Não encontrei a coluna 'Nome'. Verifique o seu arquivo.")
         else:
-            # Pega apenas os nomes, sem sujeira de outras colunas
-            todos_nomes = df[col_nome].dropna().unique()
-            contagem = {str(n).strip(): 0 for n in todos_nomes}
+            # Garante que os nomes estão limpos e sem "sujeira" das células vizinhas
+            nomes_lista = [str(n).strip() for n in df[c_nome].dropna().unique()]
+            contagem = {n: 0 for n in nomes_lista}
             
             _, ultimo_dia = calendar.monthrange(ano, mes)
 
@@ -59,11 +57,10 @@ if upload:
                 dt = datetime(ano, mes, dia)
                 sem = dt.weekday()
                 data_str = dt.strftime("%d/%m")
-                dias_semana_norm = ["segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo"]
-                exibir_dia = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"][sem]
+                dias_nomes = ["segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo"]
                 num_dom = (dia - 1) // 7 + 1
                 
-                # Regras de Missas
+                # --- Lógica de Missas ---
                 missa = ""
                 if sem == 0: missa = "Missa pelas Almas"
                 elif sem == 1 and num_dom == 1: missa = "Missa pela Saúde (15h)"
@@ -77,40 +74,39 @@ if upload:
                     tit = {1:"1º DOMINGO", 2:"2º DOMINGO", 3:"3º DOMINGO", 4:"4º DOMINGO", 5:"5º DOMINGO"}
                     escala.append({"Data": tit.get(num_dom, "DOMINGO"), "Dia": "", "Missa": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": ""})
 
+                # Definição de Horários
                 horarios = ["07h30", "11h", "18h"] if sem == 6 else (["15h"] if "15h" in missa else (["19h30"] if (missa or sem in [0,2,4]) else []))
                 
                 for idx_h, h in enumerate(horarios):
                     vagas = 3 if sem == 6 else 2
                     if "cura" in missa.lower(): vagas = 1
                     
-                    # Aline/Natalia/Jefferson (2º Dom 11h)
+                    # Regra Especial 2º Dom 11h
                     l1_fixo = None
                     if num_dom == 2 and sem == 6 and h == "11h":
                         prios = [p for p in ["Aline", "Natalia", "Jefferson", "Natália "] if p in contagem]
                         random.shuffle(prios)
                         prios.sort(key=lambda x: contagem[x])
-                        l1_fixo = prios[0]
+                        l1_fixo = prios[0] if prios else None
 
-                    col_alvo = buscar_coluna(df, data_str) or buscar_coluna(df, dias_semana_norm[sem])
+                    col_alvo = buscar_coluna(df, data_str) or buscar_coluna(df, dias_nomes[sem])
                     candidatos = []
                     
                     if col_alvo:
                         for _, row in df.iterrows():
-                            val_celula = str(row[col_alvo]).lower()
-                            # Só entra se a pessoa marcou "Sim" ou o horário específico
-                            if "sim" in val_celula or h in val_celula:
-                                nome_limpo = str(row[col_nome]).strip()
-                                imp = str(row.get(col_impedimento, "")).lower()
-                                
-                                # Verifica se não há bloqueio para este dia
-                                if not re.search(rf"\b0?{dia}\b", imp):
-                                    candidatos.append(nome_limpo)
+                            status = str(row[col_alvo]).lower()
+                            if "sim" in status or h in status:
+                                n_limpo = str(row[c_nome]).strip()
+                                imped = str(row.get(c_imp, "")).lower()
+                                if not re.search(rf"\b0?{dia}\b", imped):
+                                    candidatos.append(n_limpo)
 
+                    # EMBARALHAR E SORTEAR POR PESO
                     random.shuffle(candidatos)
                     candidatos.sort(key=lambda x: contagem[x])
 
                     escolhidos = []
-                    if l1_fixo: 
+                    if l1_fixo:
                         escolhidos.append(l1_fixo)
                         if l1_fixo in candidatos: candidatos.remove(l1_fixo)
                     
@@ -119,7 +115,9 @@ if upload:
 
                     for e in escolhidos: contagem[e] += 1
 
-                    linha = {
+                    # Montagem da Linha
+                    exibir_dia = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"][sem]
+                    res = {
                         "Data": data_str if (sem != 6 or idx_h == 0) else "",
                         "Dia": exibir_dia if (sem != 6 or idx_h == 0) else "",
                         "Missa": missa if (sem != 6 or idx_h == 0) else "",
@@ -127,20 +125,20 @@ if upload:
                         "1ª Leitura": escolhidos[0] if len(escolhidos) > 0 else "Pendente",
                         "2ª Leitura": "", "Prece": ""
                     }
-                    if vagas == 2: linha["Prece"] = escolhidos[1] if len(escolhidos) > 1 else ""
+                    if vagas == 2:
+                        res["Prece"] = escolhidos[1] if len(escolhidos) > 1 else ""
                     elif vagas == 3:
-                        linha["2ª Leitura"] = escolhidos[1] if len(escolhidos) > 1 else ""
-                        linha["Prece"] = escolhidos[2] if len(escolhidos) > 2 else ""
+                        res["2ª Leitura"] = escolhidos[1] if len(escolhidos) > 1 else ""
+                        res["Prece"] = escolhidos[2] if len(escolhidos) > 2 else ""
                     
                     if num_dom == 3 and sem == 6 and h == "11h":
-                        linha["1ª Leitura"] = linha["2ª Leitura"] = linha["Prece"] = "CRIANÇAS"
+                        res["1ª Leitura"] = res["2ª Leitura"] = res["Prece"] = "CRIANÇAS"
 
-                    escala.append(linha)
+                    escala.append(res)
 
-            df_final = pd.DataFrame(escala)
-            st.table(df_final)
+            st.table(pd.DataFrame(escala))
             
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_final.to_excel(writer, index=False)
-            st.download_button("📥 Baixar Escala", output.getvalue(), "escala_liturgia.xlsx")
+                pd.DataFrame(escala).to_excel(writer, index=False)
+            st.download_button("📥 Baixar Escala em Excel", output.getvalue(), "escala_liturgia.xlsx")
