@@ -45,7 +45,7 @@ if upload:
         upload.seek(0)
         df = pd.read_csv(upload, sep=None, engine='python', encoding='latin1')
 
-    if st.button("🚀 Gerar Escala Finalizada"):
+    if st.button("🚀 Gerar Escala com Cores"):
         escala = []
         c_nome = buscar_coluna(df, "nome")
         c_imp = buscar_coluna(df, "nao pod")
@@ -64,18 +64,24 @@ if upload:
                 dias_nomes = ["segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo"]
                 num_dom = (dia - 1) // 7 + 1
                 
+                # --- DEFINIÇÃO DE MISSA E COR ---
                 missa = ""
+                cor = "Verde" # Padrão Tempo Comum
+                
+                # Exemplo Quaresma (Março costuma ser Roxo)
+                if mes == 3: cor = "Roxo"
+
                 if sem == 0: missa = "Missa pelas Almas"
-                elif sem == 1 and num_dom == 1: missa = "Missa pela Saúde (15h)"
+                elif sem == 1 and num_dom == 1: missa = "Missa pela Saúde (15h)"; cor = "Branco"
                 elif sem == 2: missa = "Cura e Libertação"
-                elif dia == 13: missa = "N. Sra. Fátima"
-                elif sem == 5: missa = "Devocional Maria"
+                elif dia == 13: missa = "N. Sra. Fátima"; cor = "Branco"
+                elif sem == 5: missa = "Devocional Maria"; cor = "Branco"
                 elif any(d in data_str for d in ["16/03", "17/03", "18/03"]): missa = "Tríduo São José"
-                elif "19/03" in data_str: missa = "Solenidade São José"
+                elif "19/03" in data_str: missa = "Solenidade São José"; cor = "Branco"
 
                 if sem == 6:
                     tit = {1:"1º DOMINGO", 2:"2º DOMINGO", 3:"3º DOMINGO", 4:"4º DOMINGO", 5:"5º DOMINGO"}
-                    escala.append({"Data": tit.get(num_dom), "Dia": "", "Missa": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": ""})
+                    escala.append({"Data": tit.get(num_dom), "Dia": "", "Missa": "", "Cor": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": ""})
 
                 horarios = ["07h30", "11h", "18h"] if sem == 6 else (["15h"] if "15h" in missa else (["19h30"] if (missa or sem in [0,2,4]) else []))
                 
@@ -115,15 +121,15 @@ if upload:
 
                     exibir_dia = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"][sem]
                     
-                    # --- LÓGICA DO TRAÇO ---
                     res = {
                         "Data": data_str if (sem != 6 or idx_h == 0) else "",
                         "Dia": exibir_dia if (sem != 6 or idx_h == 0) else "",
                         "Missa": missa if (sem != 6 or idx_h == 0) else "",
+                        "Cor": cor if (sem != 6 or idx_h == 0) else "",
                         "Hora": h,
                         "1ª Leitura": escolhidos[0] if len(escolhidos) > 0 else "Pendente",
-                        "2ª Leitura": "—", # Padrão é traço
-                        "Prece": "—"      # Padrão é traço
+                        "2ª Leitura": "—",
+                        "Prece": "—"
                     }
                     
                     if vagas == 2:
@@ -141,4 +147,4 @@ if upload:
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 pd.DataFrame(escala).to_excel(writer, index=False)
-            st.download_button("📥 Baixar Escala em Excel", output.getvalue(), "escala_liturgia.xlsx")
+            st.download_button("📥 Baixar Escala Final", output.getvalue(), "escala_liturgia.xlsx")
