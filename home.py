@@ -33,7 +33,7 @@ if upload:
     df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.lower()
     df = df.map(lambda x: str(x).strip() if pd.notnull(x) else x)
 
-    if st.button("🚀 Gerar Escala Corrigida"):
+    if st.button("🚀 Gerar Escala Final"):
         escala = []
         col_nome = localizar_coluna(df, "nome")
         nomes_unicos = list(df[col_nome].unique())
@@ -49,28 +49,24 @@ if upload:
             data_formatada = dt.strftime("%d/%m")
             num_dom = (dia - 1) // 7 + 1
             
-            # Identificação da Missa
             celebracao = ""
             if sem == 0: celebracao = "Missa pelas Almas"
             elif sem == 1 and num_dom == 1: celebracao = "Missa pela Saúde (15h)"
             elif sem == 2: celebracao = "Missa Cura e Libertação"
             elif dia == 13: celebracao = "Missa Louvor N. Sra. Fátima"
             elif sem == 5: celebracao = "Missa Devocional a Maria"
-            elif "16/03" in data_formatada or "17/03" in data_formatada or "18/03" in data_formatada: celebracao = "Tríduo São José"
+            elif any(d in data_formatada for d in ["16/03", "17/03", "18/03"]): celebracao = "Tríduo São José"
             elif "19/03" in data_formatada: celebracao = "Solenidade São José"
 
             if sem == 6:
                 textos = {1:"1º DOMINGO", 2:"2º DOMINGO - DIZIMISTAS", 3:"3º DOMINGO - CRIANÇAS", 4:"4º DOMINGO - FAMÍLIAS", 5:"5º DOMINGO"}
                 escala.append({"Data": textos.get(num_dom, "DOMINGO"), "Dia": "", "Missa": "", "Cor": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": ""})
 
-            # Define Horários
             horarios = ["07h30", "11h", "18h"] if sem == 6 else (["15h"] if "15h" in celebracao else (["19h30"] if (sem in [0, 2, 4] or "São José" in celebracao) else (["09h"] if sem == 5 else [])))
 
             for idx_h, h in enumerate(horarios):
-                # Define número de leitores
                 vagas = 3 if sem == 6 else (1 if sem == 2 else 2)
                 
-                # Regra 2º Dom 11h
                 l1_obrigatorio = None
                 if num_dom == 2 and sem == 6 and h == "11h":
                     prios = [p for p in ["Aline", "Natalia", "Jefferson", "Natália "] if p in contagem_participacao]
@@ -78,7 +74,6 @@ if upload:
                     prios.sort(key=lambda n: contagem_participacao[n])
                     l1_obrigatorio = prios[0]
 
-                # Busca candidatos disponíveis
                 col_alvo = localizar_coluna(df, data_formatada) or localizar_coluna(df, nomes_sem[sem])
                 disponiveis = []
                 if col_alvo:
@@ -92,7 +87,6 @@ if upload:
                 random.shuffle(disponiveis)
                 disponiveis.sort(key=lambda n: contagem_participacao[n])
 
-                # Preenchimento das vagas
                 escolhidos = []
                 if l1_obrigatorio:
                     escolhidos.append(l1_obrigatorio)
@@ -102,7 +96,9 @@ if upload:
                     if len(escolhidos) < vagas:
                         escolhidos.append(p)
 
-                # Montagem da linha
+                for e in escolhidos:
+                    contagem_participacao[e] += 1
+
                 linha = {
                     "Data": dt.strftime("%d/%m") if (sem != 6 or idx_h == 0) else "",
                     "Dia": nome_dia_exibicao if (sem != 6 or idx_h == 0) else "",
@@ -111,17 +107,18 @@ if upload:
                     "1ª Leitura": escolhidos[0] if len(escolhidos) > 0 else "Pendente",
                     "2ª Leitura": "", "Prece": ""
                 }
-
                 if vagas == 2:
                     linha["Prece"] = escolhidos[1] if len(escolhidos) > 1 else ""
                 elif vagas == 3:
                     linha["2ª Leitura"] = escolhidos[1] if len(escolhidos) > 1 else ""
                     linha["Prece"] = escolhidos[2] if len(escolhidos) > 2 else ""
-
-                # Atualiza contagem global
-                for e in escolhidos:
-                    contagem_participacao[e] += 1
                 
                 escala.append(linha)
 
-        st.table(pd.DataFrame(escala))
+        df_final = pd.DataFrame(escala)
+        st.table(df_final)
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_final.to_excel(writer, index=False, sheet_name='Escala')
+        st.download_button("📥 Baixar Escala em Excel", output.getvalue(), f"escala_{mes}_{ano}.xlsx")
