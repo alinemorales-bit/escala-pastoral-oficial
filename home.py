@@ -7,7 +7,7 @@ import random
 import re
 import unicodedata
 
-# 1. FUNÇÕES DE APOIO (Definidas no topo absoluto para o sistema reconhecer)
+# 1. FUNÇÕES DE APOIO (Definidas no topo para o Python não se perder)
 def normalizar(txt):
     if pd.isna(txt): return ""
     txt = str(txt).lower().strip()
@@ -19,6 +19,10 @@ def buscar_coluna(df, termo):
         if termo_norm in normalizar(col):
             return col
     return None
+
+def limpar_nome_estrito(n):
+    """Garante que pegamos apenas o nome, ignorando ponto e vírgula do CSV"""
+    return str(n).split(';')[0].split(',')[0].strip()
 
 # 2. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(page_title="Escala Pastoral Fatima", page_icon="⛪", layout="wide")
@@ -33,23 +37,28 @@ with col2:
 upload = st.file_uploader("📂 Arraste o arquivo CSV aqui", type="csv")
 
 if upload:
+    # --- LEITURA DO CSV COM SEPARADOR DINÂMICO ---
     try:
-        df = pd.read_csv(upload, sep=None, engine='python', encoding='utf-8-sig')
+        # Tenta primeiro com ponto e vírgula (padrão brasileiro)
+        df = pd.read_csv(upload, sep=';', encoding='utf-8-sig')
+        if len(df.columns) < 2: # Se falhar na separação, tenta vírgula
+            upload.seek(0)
+            df = pd.read_csv(upload, sep=',', encoding='utf-8-sig')
     except:
         upload.seek(0)
-        df = pd.read_csv(upload, sep=';', encoding='latin1')
+        df = pd.read_csv(upload, sep=None, engine='python', encoding='latin1')
 
-    if st.button("🚀 Gerar Escala Final (Versão Estável)"):
+    if st.button("🚀 Gerar Escala Final (Nomes Limpos)"):
         escala = []
         c_nome = buscar_coluna(df, "nome")
         c_imp = buscar_coluna(df, "nao pod")
         
         if not c_nome:
-            st.error("ERRO: Não encontrei a coluna 'Nome'. Verifique o seu arquivo.")
+            st.error("ERRO: Não encontrei a coluna de 'Nome'.")
         else:
-            # Garante que os nomes estão limpos e sem "sujeira" das células vizinhas
-            nomes_lista = [str(n).strip() for n in df[c_nome].dropna().unique()]
-            contagem = {n: 0 for n in nomes_lista}
+            # Cria lista de nomes limpa para a contagem
+            todos_nomes = [limpar_nome_estrito(n) for n in df[c_nome].dropna().unique()]
+            contagem = {n: 0 for n in todos_nomes}
             
             _, ultimo_dia = calendar.monthrange(ano, mes)
 
@@ -74,7 +83,6 @@ if upload:
                     tit = {1:"1º DOMINGO", 2:"2º DOMINGO", 3:"3º DOMINGO", 4:"4º DOMINGO", 5:"5º DOMINGO"}
                     escala.append({"Data": tit.get(num_dom, "DOMINGO"), "Dia": "", "Missa": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": ""})
 
-                # Definição de Horários
                 horarios = ["07h30", "11h", "18h"] if sem == 6 else (["15h"] if "15h" in missa else (["19h30"] if (missa or sem in [0,2,4]) else []))
                 
                 for idx_h, h in enumerate(horarios):
@@ -96,12 +104,12 @@ if upload:
                         for _, row in df.iterrows():
                             status = str(row[col_alvo]).lower()
                             if "sim" in status or h in status:
-                                n_limpo = str(row[c_nome]).strip()
+                                n_extraido = limpar_nome_estrito(row[c_nome])
                                 imped = str(row.get(c_imp, "")).lower()
                                 if not re.search(rf"\b0?{dia}\b", imped):
-                                    candidatos.append(n_limpo)
+                                    candidatos.append(n_extraido)
 
-                    # EMBARALHAR E SORTEAR POR PESO
+                    # Embaralhar para diversidade
                     random.shuffle(candidatos)
                     candidatos.sort(key=lambda x: contagem[x])
 
@@ -115,7 +123,7 @@ if upload:
 
                     for e in escolhidos: contagem[e] += 1
 
-                    # Montagem da Linha
+                    # Montagem da Linha de Exibição
                     exibir_dia = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"][sem]
                     res = {
                         "Data": data_str if (sem != 6 or idx_h == 0) else "",
@@ -137,7 +145,6 @@ if upload:
                     escala.append(res)
 
             st.table(pd.DataFrame(escala))
-            
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 pd.DataFrame(escala).to_excel(writer, index=False)
