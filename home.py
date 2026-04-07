@@ -29,7 +29,6 @@ if upload:
             if termo.lower() in col.lower(): return col
         return None
 
-    # Limpeza inicial
     df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.lower()
     df = df.map(lambda x: str(x).strip() if pd.notnull(x) else x)
 
@@ -71,7 +70,7 @@ if upload:
                 l1, l2, pr = "-", "-", "-"
                 vagas = 1 if sem == 2 else (2 if sem == 1 else (3 if sem == 6 else 2))
                 escolhidos = []
-                vagas_restantes = vagas # Inicializa sempre para evitar o erro
+                vagas_restantes = vagas
 
                 # --- REGRA 2º DOM 11H ---
                 if num_dom == 2 and sem == 6 and h == "11h":
@@ -105,6 +104,8 @@ if upload:
                             if n_p not in quem_serviu_hoje and str(dia) not in imp:
                                 candidatos_validos.append(n_p)
                         
+                        random.shuffle(candidatos_validos) # Embaralha antes para aumentar rodízio
+                        
                         while len(escolhidos) < vagas_restantes and candidatos_validos:
                             min_p = min(contagem_participacao[c] for c in candidatos_validos)
                             mais_aptos = [c for c in candidatos_validos if contagem_participacao[c] == min_p]
@@ -115,16 +116,21 @@ if upload:
                             contagem_participacao[sorteado] += 1
                             candidatos_validos.remove(sorteado)
 
-                # Organização final das colunas
+                # --- DISTRIBUIÇÃO NAS COLUNAS (Lógica de Limpeza) ---
                 if l1 == "-":
                     l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
-                    if vagas == 2: pr = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
+                    if vagas >= 2:
+                        # Se for terça (vagas=2), o segundo vai para a Prece
+                        if sem == 1: 
+                            pr = escolhidos[1] if len(escolhidos) > 1 else ""
+                        else:
+                            pr = escolhidos[1] if len(escolhidos) > 1 else ""
                     if vagas == 3: 
-                        l2 = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
-                        pr = escolhidos[2] if len(escolhidos) > 2 else "Pendente"
+                        l2 = escolhidos[1] if len(escolhidos) > 1 else ""
+                        pr = escolhidos[2] if len(escolhidos) > 2 else ""
                 elif l1 != "CRIANÇAS" and vagas == 3:
-                    l2 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
-                    pr = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
+                    l2 = escolhidos[0] if len(escolhidos) > 0 else ""
+                    pr = escolhidos[1] if len(escolhidos) > 1 else ""
 
                 d_str = dt.strftime("%d/%m") if (sem != 6 or idx == 0) else ""
                 s_str = nome_dia_exibicao if (sem != 6 or idx == 0) else ""
