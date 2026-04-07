@@ -10,6 +10,7 @@ st.set_page_config(page_title="Escala Pastoral Fatima", page_icon="⛪", layout=
 
 st.title("⛪ Gerador de Escala - Paróquia N. Sra. de Fátima")
 
+# Seleção de Mês e Ano
 col1, col2 = st.columns(2)
 with col1:
     mes = st.selectbox("Mês:", range(1, 13), index=datetime.now().month - 1)
@@ -19,106 +20,129 @@ with col2:
 upload = st.file_uploader("📂 Arraste o CSV aqui", type="csv")
 
 if upload:
+    # Carregamento robusto do CSV
     try:
         df = pd.read_csv(upload, sep=None, engine='python', encoding='utf-8-sig')
     except:
         upload.seek(0)
         df = pd.read_csv(upload, sep=';', encoding='latin1')
 
-    def localizar_coluna(data_f, termo):
-        for col in data_f.columns:
-            if termo.lower() in col.lower(): return col
+    # Limpeza de colunas (Remove acentos, espaços e deixa minúsculo)
+    def normalizar(txt):
+        return str(txt).strip().lower().normalize('NFKD').encode('ascii', errors='ignore').decode('utf-8')
+
+    df.columns = [normalizar(c) for c in df.columns]
+    df = df.map(lambda x: str(x).strip() if pd.notnull(x) else "")
+
+    def localizar_coluna(termo):
+        for col in df.columns:
+            if termo in col: return col
         return None
 
-    df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.lower()
-    df = df.map(lambda x: str(x).strip() if pd.notnull(x) else x)
-
-    if st.button("🚀 Gerar Escala Final"):
+    if st.button("🚀 Gerar Escala Completa"):
         escala = []
-        col_nome = localizar_coluna(df, "nome")
+        col_nome = localizar_coluna("nome")
         nomes_unicos = list(df[col_nome].unique())
-        contagem_participacao = {nome: 0 for nome in nomes_unicos}
+        contagem = {nome: 0 for nome in nomes_unicos}
         
-        dias_no_mes = calendar.monthrange(ano, mes)[1]
+        _, ultimo_dia = calendar.monthrange(ano, mes)
 
-        for dia in range(1, dias_no_mes + 1):
+        for dia in range(1, ultimo_dia + 1):
             dt = datetime(ano, mes, dia)
-            sem = dt.weekday()
-            nomes_sem = ["segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo"]
-            nome_dia_exibicao = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"][sem]
-            data_formatada = dt.strftime("%d/%m")
+            sem = dt.weekday() # 0=Segunda, 6=Domingo
+            data_str = dt.strftime("%d/%m")
+            nome_dia = ["segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo"][sem]
+            exibir_dia = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"][sem]
             num_dom = (dia - 1) // 7 + 1
             
-            celebracao = ""
-            if sem == 0: celebracao = "Missa pelas Almas"
-            elif sem == 1 and num_dom == 1: celebracao = "Missa pela Saúde (15h)"
-            elif sem == 2: celebracao = "Missa Cura e Libertação"
-            elif dia == 13: celebracao = "Missa Louvor N. Sra. Fátima"
-            elif sem == 5: celebracao = "Missa Devocional a Maria"
-            elif any(d in data_formatada for d in ["16/03", "17/03", "18/03"]): celebracao = "Tríduo São José"
-            elif "19/03" in data_formatada: celebracao = "Solenidade São José"
+            # --- Definição da Missa ---
+            missa = ""
+            if sem == 0: missa = "Missa pelas Almas"
+            elif sem == 1 and num_dom == 1: missa = "Missa pela Saúde (15h)"
+            elif sem == 2: missa = "Cura e Libertação"
+            elif dia == 13: missa = "N. Sra. Fátima"
+            elif sem == 5: missa = "Devocional Maria"
+            elif any(d in data_str for d in ["16/03", "17/03", "18/03"]): missa = "Tríduo São José"
+            elif "19/03" in data_str: missa = "Solenidade São José"
 
+            # Cabeçalho de Domingo
             if sem == 6:
-                textos = {1:"1º DOMINGO", 2:"2º DOMINGO - DIZIMISTAS", 3:"3º DOMINGO - CRIANÇAS", 4:"4º DOMINGO - FAMÍLIAS", 5:"5º DOMINGO"}
-                escala.append({"Data": textos.get(num_dom, "DOMINGO"), "Dia": "", "Missa": "", "Cor": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": ""})
+                titulos = {1:"1º DOMINGO", 2:"2º DOMINGO", 3:"3º DOMINGO", 4:"4º DOMINGO", 5:"5º DOMINGO"}
+                escala.append({"Data": titulos.get(num_dom), "Dia": "", "Missa": "", "Cor": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": ""})
 
-            horarios = ["07h30", "11h", "18h"] if sem == 6 else (["15h"] if "15h" in celebracao else (["19h30"] if (sem in [0, 2, 4] or "São José" in celebracao) else (["09h"] if sem == 5 else [])))
-
+            # --- Horários e Vagas ---
+            horarios = ["07h30", "11h", "18h"] if sem == 6 else (["15h"] if "15h" in missa else (["19h30"] if missa or sem in [0,2,4] else []))
+            
             for idx_h, h in enumerate(horarios):
-                vagas = 3 if sem == 6 else (1 if sem == 2 else 2)
+                vagas = 3 if sem == 6 else 2
+                if "cura" in missa.lower(): vagas = 1
                 
-                l1_obrigatorio = None
+                # Sorteio Aline/Natalia/Jefferson (2º Dom 11h)
+                l1_fixo = None
                 if num_dom == 2 and sem == 6 and h == "11h":
-                    prios = [p for p in ["Aline", "Natalia", "Jefferson", "Natália "] if p in contagem_participacao]
-                    random.shuffle(prios)
-                    prios.sort(key=lambda n: contagem_participacao[n])
-                    l1_obrigatorio = prios[0]
+                    prios = [p for p in ["Aline", "Natalia", "Jefferson", "Natalia "] if p in contagem]
+                    if prios:
+                        random.shuffle(prios)
+                        prios.sort(key=lambda x: contagem[x])
+                        l1_fixo = prios[0]
 
-                col_alvo = localizar_coluna(df, data_formatada) or localizar_coluna(df, nomes_sem[sem])
-                disponiveis = []
-                if col_alvo:
-                    mask = df[col_alvo].str.contains(h, na=False, case=False) if sem == 6 else df[col_alvo].str.lower() == "sim"
+                # Busca candidatos
+                col_dia = localizar_coluna(data_str) or localizar_coluna(nome_dia)
+                candidatos = []
+                if col_dia:
+                    # Filtra quem marcou "Sim" ou o horário no Domingo
+                    if sem == 6:
+                        mask = df[col_dia].str.contains(h, na=False)
+                    else:
+                        mask = df[col_dia].str.contains("sim", na=False, case=False)
+                    
                     for _, row in df[mask].iterrows():
-                        nome = row[col_nome]
-                        imp = str(row.get(localizar_coluna(df, "nao pode") or "", "")).lower()
+                        n = row[col_nome]
+                        imp = str(row.get(localizar_coluna("nao pod"), "")).lower()
                         if not re.search(rf"\b0?{dia}\b", imp):
-                            disponiveis.append(nome)
+                            candidatos.append(n)
 
-                random.shuffle(disponiveis)
-                disponiveis.sort(key=lambda n: contagem_participacao[n])
+                random.shuffle(candidatos)
+                candidatos.sort(key=lambda x: contagem[x])
 
                 escolhidos = []
-                if l1_obrigatorio:
-                    escolhidos.append(l1_obrigatorio)
-                    if l1_obrigatorio in disponiveis: disponiveis.remove(l1_obrigatorio)
+                if l1_fixo: 
+                    escolhidos.append(l1_fixo)
+                    if l1_fixo in candidatos: candidatos.remove(l1_fixo)
+                
+                for c in candidatos:
+                    if len(escolhidos) < vagas: escolhidos.append(c)
 
-                for p in disponiveis:
-                    if len(escolhidos) < vagas:
-                        escolhidos.append(p)
+                # Atualiza peso
+                for e in escolhidos: contagem[e] += 1
 
-                for e in escolhidos:
-                    contagem_participacao[e] += 1
-
+                # Monta Linha
                 linha = {
-                    "Data": dt.strftime("%d/%m") if (sem != 6 or idx_h == 0) else "",
-                    "Dia": nome_dia_exibicao if (sem != 6 or idx_h == 0) else "",
-                    "Missa": celebracao if (sem != 6 or idx_h == 0) else "",
+                    "Data": data_str if (sem != 6 or idx_h == 0) else "",
+                    "Dia": exibir_dia if (sem != 6 or idx_h == 0) else "",
+                    "Missa": missa if (sem != 6 or idx_h == 0) else "",
                     "Cor": "Verde", "Hora": h,
                     "1ª Leitura": escolhidos[0] if len(escolhidos) > 0 else "Pendente",
                     "2ª Leitura": "", "Prece": ""
                 }
+                
                 if vagas == 2:
                     linha["Prece"] = escolhidos[1] if len(escolhidos) > 1 else ""
                 elif vagas == 3:
                     linha["2ª Leitura"] = escolhidos[1] if len(escolhidos) > 1 else ""
                     linha["Prece"] = escolhidos[2] if len(escolhidos) > 2 else ""
                 
+                if num_dom == 3 and sem == 6 and h == "11h":
+                    linha["1ª Leitura"] = "CRIANÇAS"
+                    linha["2ª Leitura"] = "CRIANÇAS"
+                    linha["Prece"] = "CRIANÇAS"
+
                 escala.append(linha)
 
-        df_final = pd.DataFrame(escala)
-        st.table(df_final)
+        df_escala = pd.DataFrame(escala)
+        st.table(df_escala)
         
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_final.to_excel(writer, index=False, sheet_name='Escala')
-        st.download_button("📥 Baixar Escala em Excel", output.getvalue(), f"escala_{mes}_{ano}.xlsx")
+            df_escala.to_excel(writer, index=False, sheet_name='Escala')
+        st.download_button("📥 Baixar Escala Final", output.getvalue(), f"escala_{mes}.xlsx")
