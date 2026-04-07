@@ -7,7 +7,7 @@ import random
 import re
 import unicodedata
 
-# 1. FUNÇÕES DE APOIO (Definidas no topo para o Python não se perder)
+# 1. FUNÇÕES DE APOIO
 def normalizar(txt):
     if pd.isna(txt): return ""
     txt = str(txt).lower().strip()
@@ -21,7 +21,6 @@ def buscar_coluna(df, termo):
     return None
 
 def limpar_nome_estrito(n):
-    """Garante que pegamos apenas o nome, ignorando ponto e vírgula do CSV"""
     return str(n).split(';')[0].split(',')[0].strip()
 
 # 2. CONFIGURAÇÃO DA PÁGINA
@@ -37,29 +36,25 @@ with col2:
 upload = st.file_uploader("📂 Arraste o arquivo CSV aqui", type="csv")
 
 if upload:
-    # --- LEITURA DO CSV COM SEPARADOR DINÂMICO ---
     try:
-        # Tenta primeiro com ponto e vírgula (padrão brasileiro)
         df = pd.read_csv(upload, sep=';', encoding='utf-8-sig')
-        if len(df.columns) < 2: # Se falhar na separação, tenta vírgula
+        if len(df.columns) < 2:
             upload.seek(0)
             df = pd.read_csv(upload, sep=',', encoding='utf-8-sig')
     except:
         upload.seek(0)
         df = pd.read_csv(upload, sep=None, engine='python', encoding='latin1')
 
-    if st.button("🚀 Gerar Escala Final (Nomes Limpos)"):
+    if st.button("🚀 Gerar Escala Finalizada"):
         escala = []
         c_nome = buscar_coluna(df, "nome")
         c_imp = buscar_coluna(df, "nao pod")
         
         if not c_nome:
-            st.error("ERRO: Não encontrei a coluna de 'Nome'.")
+            st.error("ERRO: Coluna de 'Nome' não encontrada.")
         else:
-            # Cria lista de nomes limpa para a contagem
             todos_nomes = [limpar_nome_estrito(n) for n in df[c_nome].dropna().unique()]
             contagem = {n: 0 for n in todos_nomes}
-            
             _, ultimo_dia = calendar.monthrange(ano, mes)
 
             for dia in range(1, ultimo_dia + 1):
@@ -69,7 +64,6 @@ if upload:
                 dias_nomes = ["segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo"]
                 num_dom = (dia - 1) // 7 + 1
                 
-                # --- Lógica de Missas ---
                 missa = ""
                 if sem == 0: missa = "Missa pelas Almas"
                 elif sem == 1 and num_dom == 1: missa = "Missa pela Saúde (15h)"
@@ -81,7 +75,7 @@ if upload:
 
                 if sem == 6:
                     tit = {1:"1º DOMINGO", 2:"2º DOMINGO", 3:"3º DOMINGO", 4:"4º DOMINGO", 5:"5º DOMINGO"}
-                    escala.append({"Data": tit.get(num_dom, "DOMINGO"), "Dia": "", "Missa": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": ""})
+                    escala.append({"Data": tit.get(num_dom), "Dia": "", "Missa": "", "Hora": "", "1ª Leitura": "", "2ª Leitura": "", "Prece": ""})
 
                 horarios = ["07h30", "11h", "18h"] if sem == 6 else (["15h"] if "15h" in missa else (["19h30"] if (missa or sem in [0,2,4]) else []))
                 
@@ -89,7 +83,6 @@ if upload:
                     vagas = 3 if sem == 6 else 2
                     if "cura" in missa.lower(): vagas = 1
                     
-                    # Regra Especial 2º Dom 11h
                     l1_fixo = None
                     if num_dom == 2 and sem == 6 and h == "11h":
                         prios = [p for p in ["Aline", "Natalia", "Jefferson", "Natália "] if p in contagem]
@@ -99,17 +92,14 @@ if upload:
 
                     col_alvo = buscar_coluna(df, data_str) or buscar_coluna(df, dias_nomes[sem])
                     candidatos = []
-                    
                     if col_alvo:
                         for _, row in df.iterrows():
                             status = str(row[col_alvo]).lower()
                             if "sim" in status or h in status:
                                 n_extraido = limpar_nome_estrito(row[c_nome])
-                                imped = str(row.get(c_imp, "")).lower()
-                                if not re.search(rf"\b0?{dia}\b", imped):
+                                if not re.search(rf"\b0?{dia}\b", str(row.get(c_imp, "")).lower()):
                                     candidatos.append(n_extraido)
 
-                    # Embaralhar para diversidade
                     random.shuffle(candidatos)
                     candidatos.sort(key=lambda x: contagem[x])
 
@@ -123,21 +113,24 @@ if upload:
 
                     for e in escolhidos: contagem[e] += 1
 
-                    # Montagem da Linha de Exibição
                     exibir_dia = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"][sem]
+                    
+                    # --- LÓGICA DO TRAÇO ---
                     res = {
                         "Data": data_str if (sem != 6 or idx_h == 0) else "",
                         "Dia": exibir_dia if (sem != 6 or idx_h == 0) else "",
                         "Missa": missa if (sem != 6 or idx_h == 0) else "",
                         "Hora": h,
                         "1ª Leitura": escolhidos[0] if len(escolhidos) > 0 else "Pendente",
-                        "2ª Leitura": "", "Prece": ""
+                        "2ª Leitura": "—", # Padrão é traço
+                        "Prece": "—"      # Padrão é traço
                     }
+                    
                     if vagas == 2:
-                        res["Prece"] = escolhidos[1] if len(escolhidos) > 1 else ""
+                        res["Prece"] = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
                     elif vagas == 3:
-                        res["2ª Leitura"] = escolhidos[1] if len(escolhidos) > 1 else ""
-                        res["Prece"] = escolhidos[2] if len(escolhidos) > 2 else ""
+                        res["2ª Leitura"] = escolhidos[1] if len(escolhidos) > 1 else "Pendente"
+                        res["Prece"] = escolhidos[2] if len(escolhidos) > 2 else "Pendente"
                     
                     if num_dom == 3 and sem == 6 and h == "11h":
                         res["1ª Leitura"] = res["2ª Leitura"] = res["Prece"] = "CRIANÇAS"
