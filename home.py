@@ -32,7 +32,7 @@ if upload:
     df.columns = df.columns.str.strip().str.normalize('NFKD').str.encode('ascii', errors='ignore').str.decode('utf-8').str.lower()
     df = df.map(lambda x: str(x).strip() if pd.notnull(x) else x)
 
-    if st.button("🚀 Gerar Escala Final (Sorteio Aleatório)"):
+    if st.button("🚀 Gerar Escala Final (Preenchimento Total)"):
         escala = []
         col_nome = localizar_coluna(df, "nome")
         nomes_unicos = list(df[col_nome].unique())
@@ -48,7 +48,6 @@ if upload:
             num_dom = (dia - 1) // 7 + 1
             data_formatada = dt.strftime("%d/%m")
             
-            # --- REGRAS DE CELEBRAÇÃO ---
             celebracao = ""
             if sem == 0: celebracao = "Missa pelas Almas"
             elif sem == 1 and num_dom == 1: celebracao = "Missa pela Saúde (15h)"
@@ -77,10 +76,10 @@ if upload:
                 vagas = 1 if sem == 2 else (2 if (sem == 1 or "São José" in celebracao) else (3 if sem == 6 else 2))
                 escolhidos = []
 
-                # --- REGRA 2º DOM 11H (Aline, Natalia, Jefferson) ---
+                # Regra 2º Dom 11h
                 if num_dom == 2 and sem == 6 and h == "11h":
                     prioritarios = [p for p in ["Aline", "Natalia", "Jefferson", "Natália "] if p in contagem_participacao]
-                    random.shuffle(prioritarios) # Embaralha os prioritários
+                    random.shuffle(prioritarios)
                     prioritarios.sort(key=lambda n: contagem_participacao[n])
                     l1 = prioritarios[0]
                     quem_serviu_hoje.append(l1)
@@ -95,12 +94,12 @@ if upload:
                 if vagas_restantes > 0:
                     col_alvo = localizar_coluna(df, data_formatada) or localizar_coluna(df, nomes_sem[sem])
                     if col_alvo:
-                        # Filtra quem pode no horário
                         if sem == 6:
                             possiveis_df = df[df[col_alvo].str.contains(h, na=False, case=False)]
                         else:
                             possiveis_df = df[df[col_alvo].str.lower() == "sim"]
                         
+                        # Candidatos que não serviram HOJE e não têm impedimento
                         candidatos = []
                         for _, row in possiveis_df.iterrows():
                             n_p = row[col_nome]
@@ -108,9 +107,10 @@ if upload:
                             if n_p not in quem_serviu_hoje and str(dia) not in imp:
                                 candidatos.append(n_p)
                         
-                        # --- O PULO DO GATO: EMBARALHAR TUDO ---
-                        random.shuffle(candidatos) # Mistura a lista toda
-                        candidatos.sort(key=lambda n: contagem_participacao[n]) # Reordena por quem serviu menos
+                        # --- LÓGICA FLEXÍVEL ---
+                        random.shuffle(candidatos)
+                        # Ordena apenas pelo número de participações (isso naturalmente favorece quem serviu menos, mas NÃO bloqueia quem já serviu)
+                        candidatos.sort(key=lambda n: contagem_participacao[n])
                         
                         for p in candidatos:
                             if len(escolhidos) < vagas_restantes:
@@ -129,10 +129,6 @@ if upload:
                     l2 = escolhidos[0] if len(escolhidos) > 0 else ""
                     pr = escolhidos[1] if len(escolhidos) > 1 else ""
 
-                d_str = dt.strftime("%d/%m") if (sem != 6 or idx == 0) else ""
-                s_str = nome_dia_exibicao if (sem != 6 or idx == 0) else ""
-                m_str = celebracao if (sem != 6 or idx == 0) else ""
-
-                escala.append({"Data": d_str, "Dia": s_str, "Missa": m_str, "Cor": "Verde", "Hora": h, "1ª Leitura": l1, "2ª Leitura": l2, "Prece": pr})
+                escala.append({"Data": dt.strftime("%d/%m") if (sem != 6 or idx == 0) else "", "Dia": nome_dia_exibicao if (sem != 6 or idx == 0) else "", "Missa": celebracao if (sem != 6 or idx == 0) else "", "Cor": "Verde", "Hora": h, "1ª Leitura": l1, "2ª Leitura": l2, "Prece": pr})
 
         st.table(pd.DataFrame(escala))
