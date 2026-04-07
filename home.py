@@ -35,7 +35,7 @@ if upload:
     if st.button("🚀 Gerar Escala Final (Equilibrada)"):
         escala = []
         col_nome = localizar_coluna(df, "nome")
-        nomes_unicos = df[col_nome].unique()
+        nomes_unicos = list(df[col_nome].unique())
         contagem_participacao = {nome: 0 for nome in nomes_unicos}
         
         dias_no_mes = calendar.monthrange(ano, mes)[1]
@@ -67,26 +67,25 @@ if upload:
             quem_serviu_hoje = []
 
             for idx, h in enumerate(horarios):
-                l1, l2, pr = "-", "-", "-"
+                l1, l2, pr = "-", "", ""
                 vagas = 1 if sem == 2 else (2 if sem == 1 else (3 if sem == 6 else 2))
                 escolhidos = []
-                vagas_restantes = vagas
 
                 # --- REGRA 2º DOM 11H ---
                 if num_dom == 2 and sem == 6 and h == "11h":
                     prioritarios = [p for p in ["Aline", "Natalia", "Jefferson"] if p in contagem_participacao]
                     if prioritarios:
-                        min_serv = min(contagem_participacao[p] for p in prioritarios)
-                        aptos_p = [p for p in prioritarios if contagem_participacao[p] == min_serv]
-                        l1 = random.choice(aptos_p)
+                        random.shuffle(prioritarios) # Embaralha os 3 nomes
+                        prioritarios.sort(key=lambda n: contagem_participacao[n]) # Pega quem tem menos
+                        l1 = prioritarios[0]
                         quem_serviu_hoje.append(l1)
                         contagem_participacao[l1] += 1
                         vagas_restantes = vagas - 1
-                
-                # --- REGRA CRIANÇAS ---
                 elif num_dom == 3 and sem == 6 and h == "11h":
                     l1 = l2 = pr = "CRIANÇAS"
                     vagas_restantes = 0
+                else:
+                    vagas_restantes = vagas
 
                 # --- PREENCHIMENTO GERAL ---
                 if vagas_restantes > 0:
@@ -97,34 +96,29 @@ if upload:
                         else:
                             possiveis_df = df[df[col_alvo].str.lower() == "sim"]
                         
-                        candidatos_validos = []
+                        candidatos = []
                         for _, row in possiveis_df.iterrows():
                             n_p = row[col_nome]
                             imp = str(row.get(localizar_coluna(df, "nao pode") or "", ""))
                             if n_p not in quem_serviu_hoje and str(dia) not in imp:
-                                candidatos_validos.append(n_p)
+                                candidatos.append(n_p)
                         
-                        random.shuffle(candidatos_validos) # Embaralha antes para aumentar rodízio
+                        # EMBARALHAMENTO FORTE
+                        random.shuffle(candidatos)
+                        # Ordena por quem serviu menos, mas como foi embaralhado, o desempate é aleatório
+                        candidatos.sort(key=lambda n: contagem_participacao[n])
                         
-                        while len(escolhidos) < vagas_restantes and candidatos_validos:
-                            min_p = min(contagem_participacao[c] for c in candidatos_validos)
-                            mais_aptos = [c for c in candidatos_validos if contagem_participacao[c] == min_p]
-                            sorteado = random.choice(mais_aptos)
-                            
-                            escolhidos.append(sorteado)
-                            quem_serviu_hoje.append(sorteado)
-                            contagem_participacao[sorteado] += 1
-                            candidatos_validos.remove(sorteado)
+                        for p in candidatos:
+                            if len(escolhidos) < vagas_restantes:
+                                escolhidos.append(p)
+                                quem_serviu_hoje.append(p)
+                                contagem_participacao[p] += 1
 
-                # --- DISTRIBUIÇÃO NAS COLUNAS (Lógica de Limpeza) ---
+                # Distribuição nas colunas
                 if l1 == "-":
                     l1 = escolhidos[0] if len(escolhidos) > 0 else "Pendente"
                     if vagas >= 2:
-                        # Se for terça (vagas=2), o segundo vai para a Prece
-                        if sem == 1: 
-                            pr = escolhidos[1] if len(escolhidos) > 1 else ""
-                        else:
-                            pr = escolhidos[1] if len(escolhidos) > 1 else ""
+                        pr = escolhidos[1] if len(escolhidos) > 1 else ""
                     if vagas == 3: 
                         l2 = escolhidos[1] if len(escolhidos) > 1 else ""
                         pr = escolhidos[2] if len(escolhidos) > 2 else ""
